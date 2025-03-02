@@ -4,9 +4,9 @@ import logging
 
 # Configure logging with more flexible error handling
 log_paths = [
-    '/var/www/programas_publico/logs/programas_publico.log',  # Primary location
-    '/tmp/programas_publico.log',                             # Fallback to /tmp
-    './programas_publico.log'                                 # Last resort - current directory
+    '/var/www/programas/logs/programas.log',  # Primary location
+    '/tmp/programas.log',                     # Fallback to /tmp
+    './programas.log'                         # Last resort - current directory
 ]
 
 # Try each log location until one works
@@ -51,7 +51,7 @@ except Exception as e:
     )
 
 # Add application directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, '/var/www/programas')
 
 # Load environment variables
 from dotenv import load_dotenv
