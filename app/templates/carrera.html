@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Programas de {{ carrera }} - Buscador de Programas</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <!-- Barra de navegación -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('index') }}">Buscador de Programas</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('index') }}#carrerasTab">Inicio</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('index') }}#buscarTab">Buscar</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('index') }}#planesTab">Planes de Estudio</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Contenido principal -->
+    <main class="container py-4">
+        <div class="row mb-4">
+            <div class="col">
+                <nav aria-label="breadcrumb">
+                    <ol class="breadcrumb">
+                        <li class="breadcrumb-item"><a href="{{ url_for('index') }}">Inicio</a></li>
+                        <li class="breadcrumb-item active">{{ career_name }}</li>
+                    </ol>
+                </nav>
+                <h2 class="mb-3">Programas de {{ career_name }}</h2>
+                <p class="text-muted">Código: {{ carrera }}</p>
+                
+                <!-- Selector de años -->
+                <div class="mb-4">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="planYearSelect" class="form-label">Año de Cursada según Plan de Estudios:</label>
+                                <select class="form-select" id="planYearSelect" style="max-width: 200px;">
+                                    <option value="">Seleccione año</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="academicYearSelect" class="form-label">Año Académico:</label>
+                                <select class="form-select" id="academicYearSelect" style="max-width: 200px;">
+                                    <option value="">Seleccione año</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col-12">
+                <div class="card shadow">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">Listado de Programas</h5>
+                    </div>
+                    <div class="card-body">
+                        <!-- Loading indicator -->
+                        <div id="loading" class="text-center py-4">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Cargando...</span>
+                            </div>
+                            <p class="mt-2">Cargando programas...</p>
+                        </div>
+                        
+                        <!-- Programs list -->
+                        <div id="programs-container" class="d-none">
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Año Académico</th>
+                                            <th>Materia</th>
+                                            <th>Año de Cursada</th>
+                                            <th>Acción</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="programs-list">
+                                        <!-- Programs will be populated via JavaScript -->
+                                    </tbody>
+                                </table>
+                            </div>
+                            
+                            <div id="no-programs" class="alert alert-info d-none">
+                                No se encontraron programas para esta carrera en el año seleccionado.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-light py-3 mt-5">
+        <div class="container text-center">
+            <p class="m-0">&copy; {{ now.year }} Buscador de Programas Académicos</p>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const planYearSelect = document.getElementById('planYearSelect');
+            const academicYearSelect = document.getElementById('academicYearSelect');
+            const loadingIndicator = document.getElementById('loading');
+            const programsContainer = document.getElementById('programs-container');
+            const programsList = document.getElementById('programs-list');
+            const noPrograms = document.getElementById('no-programs');
+            
+            // Load both year options when page loads
+            loadYearOptions('cursada', planYearSelect);
+            loadYearOptions('academico', academicYearSelect);
+            
+            // Year select change handlers
+            planYearSelect.addEventListener('change', loadPrograms);
+            academicYearSelect.addEventListener('change', loadPrograms);
+            
+            // Function to load year options
+            function loadYearOptions(yearType, selectElement) {
+                selectElement.innerHTML = '<option value="">Cargando años...</option>';
+                
+                fetch(`/api/available_years/${yearType}?carrera={{ carrera }}`)
+                    .then(response => response.json())
+                    .then(years => {
+                        selectElement.innerHTML = '<option value="">Seleccione año</option>';
+                        years.forEach(year => {
+                            const option = document.createElement('option');
+                            option.value = year;
+                            option.textContent = year;
+                            selectElement.appendChild(option);
+                        });
+                    })
+                    .catch(error => {
+                        console.error('Error loading years:', error);
+                        selectElement.innerHTML = '<option value="">Error cargando años</option>';
+                    });
+            }
+            
+            // Function to load programs with current filters
+            function loadPrograms() {
+                const planYear = planYearSelect.value;
+                const academicYear = academicYearSelect.value;
+                
+                // Update URL with current filters
+                const newUrl = new URL(window.location);
+                if (planYear) {
+                    newUrl.searchParams.set('plan_year', planYear);
+                } else {
+                    newUrl.searchParams.delete('plan_year');
+                }
+                if (academicYear) {
+                    newUrl.searchParams.set('academic_year', academicYear);
+                } else {
+                    newUrl.searchParams.delete('academic_year');
+                }
+                window.history.pushState({}, '', newUrl);
+                
+                // Show loading
+                loadingIndicator.classList.remove('d-none');
+                programsContainer.classList.add('d-none');
+                
+                // Build API URL
+                let apiUrl = `/api/programs_by_career_year?carrera=${encodeURIComponent('{{ carrera }}')}`;
+                if (planYear) {
+                    apiUrl += `&plan_year=${encodeURIComponent(planYear)}`;
+                }
+                if (academicYear) {
+                    apiUrl += `&academic_year=${encodeURIComponent(academicYear)}`;
+                }
+                
+                // Fetch programs
+                fetch(apiUrl)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('Error en la respuesta del servidor');
+                        }
+                        return response.json();
+                    })
+                    .then(programs => {
+                        programsList.innerHTML = '';
+                        
+                        if (programs.length === 0) {
+                            noPrograms.classList.remove('d-none');
+                        } else {
+                            noPrograms.classList.add('d-none');
+                            
+                            programs.forEach(program => {
+                                const row = document.createElement('tr');
+                                
+                                // Año académico
+                                const academicYearCell = document.createElement('td');
+                                academicYearCell.textContent = program.ano_academico || '-';
+                                row.appendChild(academicYearCell);
+                                
+                                // Nombre de la materia
+                                const materiaCell = document.createElement('td');
+                                materiaCell.textContent = program.nombre_materia || 'Sin nombre';
+                                row.appendChild(materiaCell);
+                                
+                                // Año de cursada
+                                const planYearCell = document.createElement('td');
+                                planYearCell.textContent = program.ano_plan || '-';
+                                row.appendChild(planYearCell);
+                                
+                                // Acción (botón de descarga)
+                                const actionCell = document.createElement('td');
+                                const downloadBtn = document.createElement('a');
+                                downloadBtn.href = `/download/programa/${program.id_programa}`;
+                                downloadBtn.className = 'btn btn-sm btn-primary';
+                                downloadBtn.innerHTML = '<i class="fas fa-download me-1"></i> Descargar';
+                                downloadBtn.target = '_blank';
+                                actionCell.appendChild(downloadBtn);
+                                row.appendChild(actionCell);
+                                
+                                programsList.appendChild(row);
+                            });
+                        }
+                        
+                        loadingIndicator.classList.add('d-none');
+                        programsContainer.classList.remove('d-none');
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        programsList.innerHTML = '<tr><td colspan="5" class="text-center text-danger">Error al cargar los programas</td></tr>';
+                        loadingIndicator.classList.add('d-none');
+                        programsContainer.classList.remove('d-none');
+                        noPrograms.classList.add('d-none');
+                    });
+            }
+            
+            // Initial load based on URL parameters
+            const urlParams = new URLSearchParams(window.location.search);
+            const planYear = urlParams.get('plan_year');
+            const academicYear = urlParams.get('academic_year');
+            
+            // Set initial values if present in URL
+            if (planYear || academicYear) {
+                if (planYear) {
+                    // Wait for options to load before setting value
+                    const planYearInterval = setInterval(() => {
+                        if (planYearSelect.querySelector(`option[value="${planYear}"]`)) {
+                            planYearSelect.value = planYear;
+                            clearInterval(planYearInterval);
+                        }
+                    }, 100);
+                }
+                if (academicYear) {
+                    const academicYearInterval = setInterval(() => {
+                        if (academicYearSelect.querySelector(`option[value="${academicYear}"]`)) {
+                            academicYearSelect.value = academicYear;
+                            clearInterval(academicYearInterval);
+                        }
+                    }, 100);
+                }
+            } else {
+                // Load all programs if no filters
+                loadPrograms();
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Buscador de Programas Académicos</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <!-- Barra de navegación -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('index') }}">Buscador de Programas</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="{{ url_for('index') }}#carrerasTab">Inicio</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('index') }}#buscarTab">Buscar</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('index') }}#planesTab">Planes de Estudio</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Contenido principal -->
+    <main class="container py-4">
+        <div class="row">
+            <div class="col-12">
+                <div class="card shadow">
+                    <div class="card-header bg-primary text-white">
+                        <ul class="nav nav-tabs card-header-tabs" id="myTab" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active" id="carreras-tab" data-bs-toggle="tab" data-bs-target="#carrerasTab" type="button" role="tab">Carreras</button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="buscar-tab" data-bs-toggle="tab" data-bs-target="#buscarTab" type="button" role="tab">Buscar</button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="planes-tab" data-bs-toggle="tab" data-bs-target="#planesTab" type="button" role="tab">Planes de Estudio</button>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="card-body">
+                        <div class="tab-content" id="myTabContent">
+                            <!-- Pestaña de Carreras -->
+                            <div class="tab-pane fade show active" id="carrerasTab" role="tabpanel">
+                                <h5 class="card-title mb-4">Explorar Programas por Carrera</h5>
+                                <div class="row row-cols-1 row-cols-md-3 g-4">
+                                    {% for carrera in careers %}
+                                    <div class="col">
+                                        <div class="card h-100 career-card">
+                                            <div class="card-body">
+                                                <h5 class="card-title">{{ carrera.nombre }}</h5>
+                                                <p class="card-text text-muted small">Código: {{ carrera.carrera }}</p>
+                                                <p class="card-text">Accede a los programas de esta carrera organizados por año.</p>
+                                            </div>
+                                            <div class="card-footer bg-transparent border-0">
+                                                <a href="{{ url_for('carrera_programs', carrera_nombre=carrera.carrera) }}" class="btn btn-primary w-100">
+                                                    <i class="fas fa-graduation-cap me-1"></i> Ver Programas
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            
+                            <!-- Pestaña de Búsqueda -->
+                            <div class="tab-pane fade" id="buscarTab" role="tabpanel">
+                                <h5 class="card-title mb-4">Buscar Programas</h5>
+                                <form id="programSearch" class="mb-4">
+                                    <div class="row g-3">
+                                        <div class="col-md-4">
+                                            <label for="nombre-materia" class="form-label">Nombre de Materia</label>
+                                            <input type="text" class="form-control" id="nombre-materia" placeholder="Ej: Matemática">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label for="nombre-carrera" class="form-label">Carrera</label>
+                                            <select class="form-select" id="nombre-carrera">
+                                                <option value="">Todas las carreras</option>
+                                                <!-- Options will be populated via JavaScript -->
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label for="ano-academico" class="form-label">Año Académico</label>
+                                            <select class="form-select" id="ano-academico">
+                                                <option value="">Todos los años</option>
+                                                <!-- Options will be populated via JavaScript -->
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="mt-3 d-flex justify-content-end">
+                                        <button type="submit" class="btn btn-primary">
+                                            <i class="fas fa-search me-1"></i> Buscar
+                                        </button>
+                                    </div>
+                                </form>
+                                
+                                <div id="program-results" class="mt-4">
+                                    <div class="text-center text-muted py-3">
+                                        <em>Use los filtros de búsqueda para encontrar programas</em>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Pestaña de Planes de Estudio -->
+                            <div class="tab-pane fade" id="planesTab" role="tabpanel">
+                                <h5 class="card-title mb-4">Buscar Planes de Estudio</h5>
+                                <form id="planSearch" class="mb-4">
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <label for="plan-carrera" class="form-label">Carrera</label>
+                                            <select class="form-select" id="plan-carrera">
+                                                <option value="">Todas las carreras</option>
+                                                <!-- Options will be populated via JavaScript -->
+                                            </select>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label for="vigente" class="form-label">Estado</label>
+                                            <select class="form-select" id="vigente">
+                                                <option value="">Todos</option>
+                                                <!-- Options will be populated via JavaScript -->
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="mt-3 d-flex justify-content-end">
+                                        <button type="submit" class="btn btn-primary">
+                                            <i class="fas fa-search me-1"></i> Buscar
+                                        </button>
+                                    </div>
+                                </form>
+                                
+                                <div id="plan-results" class="mt-4">
+                                    <div class="text-center text-muted py-3">
+                                        <em>Use los filtros de búsqueda para encontrar planes de estudio</em>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-light py-3 mt-5">
+        <div class="container text-center">
+            <p class="m-0">&copy; {{ now.year }} Buscador de Programas Académicos</p>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/search.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Handle tab navigation from URL hash
+            function showTabFromHash() {
+                const hash = window.location.hash;
+                if (hash) {
+                    const tabId = hash.substring(1);  // Remove the # from the hash
+                    const tab = document.querySelector(`button[data-bs-target="#${tabId}"]`);
+                    if (tab) {
+                        const bsTab = new bootstrap.Tab(tab);
+                        bsTab.show();
+                    }
+                }
+            }
+
+            // Show correct tab on page load
+            showTabFromHash();
+
+            // Update active nav link based on current tab
+            const tabs = document.querySelectorAll('button[data-bs-toggle="tab"]');
+            tabs.forEach(tab => {
+                tab.addEventListener('shown.bs.tab', function(event) {
+                    const targetId = event.target.dataset.bsTarget.substring(1);
+                    const navLinks = document.querySelectorAll('.navbar-nav .nav-link');
+                    navLinks.forEach(link => {
+                        if (link.getAttribute('href').includes(targetId)) {
+                            link.classList.add('active');
+                        } else {
+                            link.classList.remove('active');
+                        }
+                    });
+                });
+            });
+
+            // Handle browser back/forward buttons
+            window.addEventListener('hashchange', showTabFromHash);
+        });
+    </script>
+</body>
+</html>
