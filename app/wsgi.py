@@ -51,16 +51,16 @@ except Exception as e:
     )
 
 # Add application directory to path
-sys.path.insert(0, '/var/www/programas_publico')
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Load environment variables
 from dotenv import load_dotenv
-dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
+dotenv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
 load_dotenv(dotenv_path)
 
 # Import the Flask application
 try:
-    from app.app import app as application
+    from app import app as application
     logging.info("Flask application imported successfully")
 except Exception as e:
     logging.error(f"Error importing Flask application: {e}")
