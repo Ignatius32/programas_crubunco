@@ -51,7 +51,7 @@ except Exception as e:
     )
 
 # Add application directory to path
-sys.path.insert(0, '/var/www/programas')
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Load environment variables
 from dotenv import load_dotenv
@@ -60,7 +60,8 @@ load_dotenv(dotenv_path)
 
 # Import the Flask application
 try:
-    from app import app as application
+    from app.app import app
+    application = app  # This is the correct WSGI application object
     logging.info("Flask application imported successfully")
 except Exception as e:
     logging.error(f"Error importing Flask application: {e}")
@@ -104,13 +105,10 @@ class PrefixMiddleware:
                 environ['PATH_INFO'] = path_info
                 environ['SCRIPT_NAME'] = self.prefix
                 logging.debug(f"Adjusted path: {path_info}")
+            else:
+                return self.app(environ, start_response)
 
-            # Wrap start_response to log response status
-            def custom_start_response(status, headers, exc_info=None):
-                logging.debug(f"Response status: {status}")
-                return start_response(status, headers, exc_info)
-
-            return self.app(environ, custom_start_response)
+            return self.app(environ, start_response)
         except Exception as e:
             logging.error(f"Middleware error: {e}", exc_info=True)
             status = '500 Internal Server Error'
@@ -146,12 +144,13 @@ class RestoreContentLengthWrapper:
                 break
             yield line
 
-# Apply the middleware if we successfully loaded the app
-if not callable(application):
-    logging.error("Application is not callable - middleware not applied")
-else:
+# Apply the middleware
+if hasattr(application, 'wsgi_app'):
     application.wsgi_app = PrefixMiddleware(application.wsgi_app)
-    logging.info("Middleware applied to application")
+    logging.info("Middleware applied to application.wsgi_app")
+else:
+    application = PrefixMiddleware(application)
+    logging.info("Middleware applied directly to application")
 
 if __name__ == '__main__':
     application.run()
