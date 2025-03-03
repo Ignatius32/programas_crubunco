@@ -200,6 +200,11 @@
     <script src="{{ url_for('static', filename='js/search.js') }}"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            // Get the base URL path from the server configuration
+            const baseUrlPath = window.location.pathname.includes('/programas/') 
+                ? '/programas' 
+                : '';
+                
             // Handle tab navigation from URL hash
             function showTabFromHash() {
                 const hash = window.location.hash;
@@ -223,7 +228,8 @@
                     const targetId = event.target.dataset.bsTarget.substring(1);
                     const navLinks = document.querySelectorAll('.navbar-nav .nav-link');
                     navLinks.forEach(link => {
-                        if (link.getAttribute('href').includes(targetId)) {
+                        const href = link.getAttribute('href');
+                        if (href.includes(targetId)) {
                             link.classList.add('active');
                         } else {
                             link.classList.remove('active');
