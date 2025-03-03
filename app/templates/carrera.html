@@ -50,17 +50,17 @@
                     <div class="row">
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label for="planYearSelect" class="form-label">Año de Cursada según Plan de Estudios:</label>
-                                <select class="form-select" id="planYearSelect" style="max-width: 200px;">
-                                    <option value="">Seleccione año</option>
+                                <label for="academicYearSelect" class="form-label">Año Académico:</label>
+                                <select class="form-select" id="academicYearSelect" style="max-width: 300px;">
+                                    <option value="">Seleccionar año</option>
                                 </select>
                             </div>
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-6 ps-md-4">
                             <div class="mb-3">
-                                <label for="academicYearSelect" class="form-label">Año Académico:</label>
-                                <select class="form-select" id="academicYearSelect" style="max-width: 200px;">
-                                    <option value="">Seleccione año</option>
+                                <label for="planYearSelect" class="form-label">Año de Cursada:</label>
+                                <select class="form-select" id="planYearSelect" style="max-width: 300px;">
+                                    <option value="">Seleccionar año</option>
                                 </select>
                             </div>
                         </div>
@@ -90,7 +90,6 @@
                                 <table class="table table-hover">
                                     <thead class="table-light">
                                         <tr>
-                                            <th>Año Académico</th>
                                             <th>Materia</th>
                                             <th>Año de Cursada</th>
                                             <th>Acción</th>
@@ -103,7 +102,7 @@
                             </div>
                             
                             <div id="no-programs" class="alert alert-info d-none">
-                                No se encontraron programas para esta carrera en el año seleccionado.
+                                No se encontraron programas para los años seleccionados.
                             </div>
                         </div>
                     </div>
@@ -122,6 +121,11 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            // Get the base URL path from the server configuration
+            const baseUrlPath = window.location.pathname.includes('/programas/') 
+                ? '/programas' 
+                : '';
+                
             const planYearSelect = document.getElementById('planYearSelect');
             const academicYearSelect = document.getElementById('academicYearSelect');
             const loadingIndicator = document.getElementById('loading');
@@ -141,10 +145,12 @@
             function loadYearOptions(yearType, selectElement) {
                 selectElement.innerHTML = '<option value="">Cargando años...</option>';
                 
-                fetch(`/api/available_years/${yearType}?carrera={{ carrera }}`)
+                fetch(`${baseUrlPath}/api/available_years/${yearType}?carrera={{ carrera }}`)
                     .then(response => response.json())
                     .then(years => {
-                        selectElement.innerHTML = '<option value="">Seleccione año</option>';
+                        selectElement.innerHTML = '<option value="">Seleccionar año</option>';
+                        // Sort years in descending order
+                        years.sort((a, b) => b - a);
                         years.forEach(year => {
                             const option = document.createElement('option');
                             option.value = year;
@@ -182,7 +188,7 @@
                 programsContainer.classList.add('d-none');
                 
                 // Build API URL
-                let apiUrl = `/api/programs_by_career_year?carrera=${encodeURIComponent('{{ carrera }}')}`;
+                let apiUrl = `${baseUrlPath}/api/programs_by_career_year?carrera=${encodeURIComponent('{{ carrera }}')}`;
                 if (planYear) {
                     apiUrl += `&plan_year=${encodeURIComponent(planYear)}`;
                 }
@@ -206,13 +212,34 @@
                         } else {
                             noPrograms.classList.add('d-none');
                             
-                            programs.forEach(program => {
+                            // Sort programs by academic year and plan year in descending order
+                            programs.sort((a, b) => {
+                                // First sort by academic year
+                                const yearA = parseInt(a.ano_academico) || 0;
+                                const yearB = parseInt(b.ano_academico) || 0;
+                                if (yearA !== yearB) {
+                                    return yearB - yearA;
+                                }
+                                // If academic years are equal, sort by plan year
+                                const planYearA = parseInt(a.ano_plan) || 0;
+                                const planYearB = parseInt(b.ano_plan) || 0;
+                                return planYearB - planYearA;
+                            });
+                            
+                            programs.forEach((program, index) => {
+                                // Add year separator if it's the first program or if the year changes
+                                if (index === 0 || programs[index - 1].ano_academico !== program.ano_academico) {
+                                    const yearRow = document.createElement('tr');
+                                    yearRow.className = 'table-light year-separator';
+                                    const yearCell = document.createElement('td');
+                                    yearCell.colSpan = 3;
+                                    yearCell.className = 'py-3';
+                                    yearCell.innerHTML = `<h5 class="mb-0">Año ${program.ano_academico}</h5>`;
+                                    yearRow.appendChild(yearCell);
+                                    programsList.appendChild(yearRow);
+                                }
+
                                 const row = document.createElement('tr');
-                                
-                                // Año académico
-                                const academicYearCell = document.createElement('td');
-                                academicYearCell.textContent = program.ano_academico || '-';
-                                row.appendChild(academicYearCell);
                                 
                                 // Nombre de la materia
                                 const materiaCell = document.createElement('td');
@@ -221,13 +248,15 @@
                                 
                                 // Año de cursada
                                 const planYearCell = document.createElement('td');
-                                planYearCell.textContent = program.ano_plan || '-';
+                                planYearCell.textContent = program.ano_plan ? 
+                                    `${program.ano_plan}° Año${program.periodo_plan ? ' - ' + program.periodo_plan : ''}` : 
+                                    '-';
                                 row.appendChild(planYearCell);
                                 
                                 // Acción (botón de descarga)
                                 const actionCell = document.createElement('td');
                                 const downloadBtn = document.createElement('a');
-                                downloadBtn.href = `/download/programa/${program.id_programa}`;
+                                downloadBtn.href = `${baseUrlPath}/download/programa/${program.id_programa}`;
                                 downloadBtn.className = 'btn btn-sm btn-primary';
                                 downloadBtn.innerHTML = '<i class="fas fa-download me-1"></i> Descargar';
                                 downloadBtn.target = '_blank';

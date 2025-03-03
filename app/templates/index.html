@@ -54,19 +54,55 @@
                         <div class="tab-content" id="myTabContent">
                             <!-- Pestaña de Carreras -->
                             <div class="tab-pane fade show active" id="carrerasTab" role="tabpanel">
-                                <h5 class="card-title mb-4">Explorar Programas por Carrera</h5>
-                                <div class="row row-cols-1 row-cols-md-3 g-4">
+                                <h5 class="card-title mb-2">Explorar Programas por Carrera</h5>
+                                <p class="text-muted mb-4">Accede a los programas de cada carrera organizados por año.</p>
+                                <div class="row row-cols-1 row-cols-md-2 row-cols-lg-4 g-4">
                                     {% for carrera in careers %}
                                     <div class="col">
                                         <div class="card h-100 career-card">
-                                            <div class="card-body">
-                                                <h5 class="card-title">{{ carrera.nombre }}</h5>
-                                                <p class="card-text text-muted small">Código: {{ carrera.carrera }}</p>
-                                                <p class="card-text">Accede a los programas de esta carrera organizados por año.</p>
-                                            </div>
-                                            <div class="card-footer bg-transparent border-0">
-                                                <a href="{{ url_for('carrera_programs', carrera_nombre=carrera.carrera) }}" class="btn btn-primary w-100">
-                                                    <i class="fas fa-graduation-cap me-1"></i> Ver Programas
+                                            <div class="card-content">
+                                                <div class="card-main">
+                                                    <div class="career-emoji">
+                                                        {% if carrera.carrera == 'ICIB' %}
+                                                        🏗️
+                                                        {% elif carrera.carrera == 'IELB' %}
+                                                        ⚡
+                                                        {% elif carrera.carrera == 'IETB' %}
+                                                        🔧
+                                                        {% elif carrera.carrera == 'IMEB' %}
+                                                        ⚙️
+                                                        {% elif carrera.carrera == 'IPEB' %}
+                                                        🛢️
+                                                        {% elif carrera.carrera == 'IQUB' %}
+                                                        🧪
+                                                        {% elif carrera.carrera == 'LBIB' %}
+                                                        🧬
+                                                        {% elif carrera.carrera == 'LENB' %}
+                                                        👨‍⚕️
+                                                        {% elif carrera.carrera == 'LMAB' %}
+                                                        📐
+                                                        {% elif carrera.carrera == 'PBIB' %}
+                                                        🔬
+                                                        {% elif carrera.carrera == 'PEFB' %}
+                                                        🏃
+                                                        {% elif carrera.carrera == 'PUMA' %}
+                                                        ➗
+                                                        {% elif carrera.carrera == 'TACB' %}
+                                                        🐟
+                                                        {% else %}
+                                                        📚
+                                                        {% endif %}
+                                                    </div>
+                                                    <h5 class="career-title">
+                                                        {{ carrera.nombre }}
+                                                    </h5>
+                                                </div>
+                                                <a href="{{ url_for('carrera_programs', carrera_nombre=carrera.carrera) }}" 
+                                                   class="btn-ver-programas"
+                                                   aria-label="Ver programas de {{ carrera.nombre }}"
+                                                   role="button"
+                                                   tabindex="0">
+                                                    Ver Programas
                                                 </a>
                                             </div>
                                         </div>

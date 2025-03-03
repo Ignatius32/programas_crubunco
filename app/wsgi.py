@@ -51,6 +51,7 @@ except Exception as e:
     )
 
 # Add application directory to path
+sys.path.insert(0, '/var/www/programas')  # Add the root programas directory
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Load environment variables
@@ -58,20 +59,31 @@ from dotenv import load_dotenv
 dotenv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
 load_dotenv(dotenv_path)
 
-# Import the Flask application
-try:
-    from app.app import app
-    application = app  # This is the correct WSGI application object
-    logging.info("Flask application imported successfully")
-except Exception as e:
-    logging.error(f"Error importing Flask application: {e}")
-    def application(environ, start_response):
-        status = '500 Internal Server Error'
-        output = f"Import error: {str(e)}".encode('utf-8')
-        response_headers = [('Content-type', 'text/plain'),
-                           ('Content-Length', str(len(output)))]
-        start_response(status, response_headers)
-        return [output]
+# Helper class to restore request body for reading
+class RestoreContentLengthWrapper:
+    def __init__(self, stream, content):
+        self.stream = stream
+        self.content = content
+        self.position = 0
+
+    def read(self, size=-1):
+        if size == -1 or size > len(self.content) - self.position:
+            result = self.content[self.position:]
+            self.position = len(self.content)
+        else:
+            result = self.content[self.position:self.position + size]
+            self.position += size
+        return result
+
+    def readline(self, size=-1):
+        return self.read(size)
+
+    def __iter__(self):
+        while True:
+            line = self.readline()
+            if not line:
+                break
+            yield line
 
 # Simple middleware that handles paths
 class PrefixMiddleware:
@@ -105,44 +117,48 @@ class PrefixMiddleware:
                 environ['PATH_INFO'] = path_info
                 environ['SCRIPT_NAME'] = self.prefix
                 logging.debug(f"Adjusted path: {path_info}")
-            else:
-                return self.app(environ, start_response)
 
-            return self.app(environ, start_response)
-        except Exception as e:
-            logging.error(f"Middleware error: {e}", exc_info=True)
+            # Wrap start_response to log response status
+            def custom_start_response(status, headers, exc_info=None):
+                logging.debug(f"Response status: {status}")
+                return start_response(status, headers, exc_info)
+
+            return self.app(environ, custom_start_response)
+            
+        except Exception as middleware_error:
+            logging.error(f"Middleware error: {middleware_error}", exc_info=True)
             status = '500 Internal Server Error'
-            output = f"Middleware error: {str(e)}".encode('utf-8')
+            output = f"Middleware error: {str(middleware_error)}".encode('utf-8')
             response_headers = [('Content-type', 'text/plain'),
-                               ('Content-Length', str(len(output)))]
+                              ('Content-Length', str(len(output)))]
             start_response(status, response_headers)
             return [output]
 
-# Helper class to restore request body for reading
-class RestoreContentLengthWrapper:
-    def __init__(self, stream, content):
-        self.stream = stream
-        self.content = content
-        self.position = 0
-
-    def read(self, size=-1):
-        if size == -1 or size > len(self.content) - self.position:
-            result = self.content[self.position:]
-            self.position = len(self.content)
-        else:
-            result = self.content[self.position:self.position + size]
-            self.position += size
-        return result
-
-    def readline(self, size=-1):
-        return self.read(size)
-
-    def __iter__(self):
-        while True:
-            line = self.readline()
-            if not line:
-                break
-            yield line
+# Import the Flask application
+try:
+    # Try different import approaches
+    try:
+        from app.app import app
+        application = app
+        logging.info("Flask application imported successfully from app.app")
+    except ImportError:
+        # Try an alternative import path
+        from app import app
+        application = app
+        logging.info("Flask application imported successfully from app")
+except Exception as import_error:
+    # Store the error message for later use
+    error_message = str(import_error)
+    logging.error(f"Error importing Flask application: {error_message}")
+    
+    # Define application function with access to the error_message
+    def application(environ, start_response):
+        status = '500 Internal Server Error'
+        output = f"Import error: {error_message}".encode('utf-8')
+        response_headers = [('Content-type', 'text/plain'),
+                          ('Content-Length', str(len(output)))]
+        start_response(status, response_headers)
+        return [output]
 
 # Apply the middleware
 if hasattr(application, 'wsgi_app'):

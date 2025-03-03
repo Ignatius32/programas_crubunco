@@ -1,4 +1,9 @@
 document.addEventListener('DOMContentLoaded', function() {
+    // Get the base URL path from the server configuration
+    const baseUrlPath = window.location.pathname.includes('/programas/') 
+        ? '/programas' 
+        : '';
+    
     // Program search functionality
     const programSearchForm = document.getElementById('programSearch');
     const programResultsDiv = document.getElementById('program-results');
@@ -7,7 +12,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Load search options when page loads
     if (carreraSelect && anoAcademicoSelect) {
-        fetch('/api/search_options')
+        fetch(`${baseUrlPath}/api/search_options`)
             .then(response => response.json())
             .then(data => {
                 // Populate career options
@@ -52,7 +57,7 @@ document.addEventListener('DOMContentLoaded', function() {
             `;
             
             // Build API URL with search parameters
-            let apiUrl = '/api/search_programs?';
+            let apiUrl = `${baseUrlPath}/api/search_programs?`;
             if (nombreMateria) apiUrl += `nombre_materia=${encodeURIComponent(nombreMateria)}&`;
             if (nombreCarrera) apiUrl += `nombre_carrera=${encodeURIComponent(nombreCarrera)}&`;
             if (anoAcademico) apiUrl += `ano_academico=${encodeURIComponent(anoAcademico)}&`;
@@ -73,13 +78,26 @@ document.addEventListener('DOMContentLoaded', function() {
                             </div>
                         `;
                     } else {
+                        // Sort programs by academic year and plan year in descending order
+                        programs.sort((a, b) => {
+                            // First sort by academic year
+                            const yearA = parseInt(a.ano_academico) || 0;
+                            const yearB = parseInt(b.ano_academico) || 0;
+                            if (yearA !== yearB) {
+                                return yearB - yearA;
+                            }
+                            // If academic years are equal, sort by plan year
+                            const planYearA = parseInt(a.ano_plan) || 0;
+                            const planYearB = parseInt(b.ano_plan) || 0;
+                            return planYearB - planYearA;
+                        });
+
                         // Create table with results
                         let tableHtml = `
                             <div class="table-responsive">
                                 <table class="table table-hover">
                                     <thead class="table-light">
                                         <tr>
-                                            <th>Año Académico</th>
                                             <th>Materia</th>
                                             <th>Año de Cursada</th>
                                             <th>Acción</th>
@@ -88,20 +106,31 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <tbody>
                         `;
                         
-                        // Add each program to the table
-                        programs.forEach(program => {
+                        // Add each program to the table with year separators
+                        let currentYear = null;
+                        programs.forEach((program, index) => {
+                            // Add year separator if it's the first program or if the year changes
+                            if (currentYear !== program.ano_academico) {
+                                currentYear = program.ano_academico;
+                                tableHtml += `
+                                    <tr class="table-light year-separator">
+                                        <td colspan="3" class="py-3">
+                                            <h5 class="mb-0">Año ${program.ano_academico}</h5>
+                                        </td>
+                                    </tr>
+                                `;
+                            }
+
                             const nombreMateria = program.nombre_materia || 'Sin nombre';
-                            const anoAcademico = program.ano_academico || '-';
-                            const anoPlan = program.ano_plan || '-';
+                            const anoPlan = program.ano_plan;
                             const programId = program.id_programa;
                             
                             tableHtml += `
                                 <tr>
-                                    <td>${anoAcademico}</td>
                                     <td>${nombreMateria}</td>
-                                    <td>${anoPlan}</td>
+                                    <td>${anoPlan ? `${anoPlan}° Año${program.periodo_plan ? ' - ' + program.periodo_plan : ''}` : '-'}</td>
                                     <td>
-                                        <a href="/download/programa/${programId}" class="btn btn-sm btn-primary" target="_blank">
+                                        <a href="${baseUrlPath}/download/programa/${programId}" class="btn btn-sm btn-primary" target="_blank">
                                             <i class="fas fa-download me-1"></i> Descargar
                                         </a>
                                     </td>
@@ -138,7 +167,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Load planes options when page loads
     if (planCarreraSelect && vigenteSelect) {
-        fetch('/api/planes_options')
+        fetch(`${baseUrlPath}/api/planes_options`)
             .then(response => response.json())
             .then(data => {
                 // Populate career options
@@ -182,7 +211,7 @@ document.addEventListener('DOMContentLoaded', function() {
             `;
             
             // Build API URL with search parameters
-            let apiUrl = '/api/search_planes?';
+            let apiUrl = `${baseUrlPath}/api/search_planes?`;
             if (carrera) apiUrl += `carrera=${encodeURIComponent(carrera)}&`;
             if (vigente) apiUrl += `vigente=${encodeURIComponent(vigente)}`;
             
@@ -214,7 +243,6 @@ document.addEventListener('DOMContentLoaded', function() {
                                 '<span class="badge bg-secondary">No vigente</span>';
                             const ordenanzas = plan.ordenanzas_resoluciones || '-';
                             const planId = plan.plan_version_SIU;
-                            const hasUrl = !!plan.url_planEstudio;
                             
                             cardsHtml += `
                                 <div class="col">
@@ -227,15 +255,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                             </p>
                                         </div>
                                         <div class="card-footer bg-transparent border-0">
-                                            ${hasUrl ? `
-                                                <a href="/download/plan/${planId}" class="btn btn-primary w-100" target="_blank">
-                                                    <i class="fas fa-file-pdf me-1"></i> Descargar Plan
-                                                </a>
-                                            ` : `
-                                                <button class="btn btn-secondary w-100" disabled>
-                                                    <i class="fas fa-exclamation-circle me-1"></i> Plan no disponible
-                                                </button>
-                                            `}
+                                            <a href="${baseUrlPath}/download/plan/${planId}" class="btn btn-primary w-100" target="_blank">
+                                                <i class="fas fa-file-pdf me-1"></i> Descargar Plan
+                                            </a>
                                         </div>
                                     </div>
                                 </div>
