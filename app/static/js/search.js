@@ -92,17 +92,10 @@ document.addEventListener('DOMContentLoaded', function() {
                             return planYearB - planYearA;
                         });
 
-                        // Create table with results
+                        // Create table with results - removed thead and headers
                         let tableHtml = `
                             <div class="table-responsive">
                                 <table class="table table-hover">
-                                    <thead class="table-light">
-                                        <tr>
-                                            <th>Materia</th>
-                                            <th>Año de Cursada</th>
-                                            <th>Acción</th>
-                                        </tr>
-                                    </thead>
                                     <tbody>
                         `;
                         
@@ -114,7 +107,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 currentYear = program.ano_academico;
                                 tableHtml += `
                                     <tr class="table-light year-separator">
-                                        <td colspan="3" class="py-3">
+                                        <td colspan="2" class="py-3">
                                             <h5 class="mb-0">Año ${program.ano_academico}</h5>
                                         </td>
                                     </tr>
@@ -122,13 +115,11 @@ document.addEventListener('DOMContentLoaded', function() {
                             }
 
                             const nombreMateria = program.nombre_materia || 'Sin nombre';
-                            const anoPlan = program.ano_plan;
                             const programId = program.id_programa;
                             
                             tableHtml += `
                                 <tr>
                                     <td>${nombreMateria}</td>
-                                    <td>${anoPlan ? `${anoPlan}° Año${program.periodo_plan ? ' - ' + program.periodo_plan : ''}` : '-'}</td>
                                     <td>
                                         <a href="${baseUrlPath}/download/programa/${programId}" class="btn btn-sm btn-primary" target="_blank">
                                             <i class="fas fa-download me-1"></i> Descargar

@@ -7,11 +7,11 @@ from datetime import datetime
 import tempfile
 # Import the same PDF generation libraries from the original app
 from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
+from reportlab.lib.pagesizes import letter, A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib import colors
-from reportlab.lib.units import inch
+from reportlab.lib.units import inch, mm
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
@@ -493,8 +493,50 @@ table_style = TableStyle([
     ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
     ('FONTSIZE', (0, 1), (-1, -1), 8),
     ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-    ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ('TOPPADDING', (0, 0), (-1, -1), 6),
+    ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+    ('LEFTPADDING', (0, 0), (-1, -1), 6),
+    ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+    ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE')
 ])
+
+def process_formatted_text(element):
+    """
+    Recursively process HTML elements to preserve formatting like bold, italic, etc.
+    """
+    if element.name is None:  # It's a NavigableString
+        return element.string or ''
+    
+    # Start with an empty result
+    result = ''
+    
+    # Process child elements
+    for child in element.children:
+        if child.name == 'strong' or child.name == 'b':
+            result += f"<b>{process_formatted_text(child)}</b>"
+        elif child.name == 'em' or child.name == 'i':
+            result += f"<i>{process_formatted_text(child)}</i>"
+        elif child.name == 'u':
+            result += f"<u>{process_formatted_text(child)}</u>"
+        elif child.name == 'br':
+            result += "<br/>"
+        elif child.name == 'a':
+            href = child.get('href', '#')
+            result += f"<a href='{href}'><u>{process_formatted_text(child)}</u></a>"
+        elif child.name in ['ul', 'ol', 'li', 'p', 'div', 'span']:
+            # For container elements, just process their content
+            result += process_formatted_text(child)
+        else:
+            # For other elements or text nodes
+            if hasattr(child, 'string') and child.string:
+                result += child.string
+            elif isinstance(child, str):
+                result += child
+            else:
+                result += process_formatted_text(child)
+    
+    return result
 
 def process_html_content(content, doc_width, normal_style):
     if not content or '<' not in content:
@@ -504,6 +546,7 @@ def process_html_content(content, doc_width, normal_style):
         soup = BeautifulSoup(content, 'html.parser')
         elements = []
         
+        # Process tables first
         tables = soup.find_all('table')
         if tables:
             for table in tables:
@@ -539,11 +582,44 @@ def process_html_content(content, doc_width, normal_style):
                     elements.append(Spacer(1, 0.1*inch))
             return elements
         
-        clean_text = soup.get_text('\n', strip=True)
-        paragraphs = clean_text.split('\n')
-        for para in paragraphs:
-            if para.strip():
-                elements.append(Paragraph(para.strip(), normal_style))
+        # Process lists
+        ul_elements = soup.find_all(['ul', 'ol'])
+        if ul_elements:
+            for ul in ul_elements:
+                list_items = []
+                for li in ul.find_all('li'):
+                    text = process_formatted_text(li)
+                    list_items.append(ListItem(Paragraph(text, normal_style)))
+                
+                # Check if it's an ordered list
+                is_ordered = ul.name == 'ol'
+                bullet_type = 'decimal' if is_ordered else 'bullet'
+                
+                list_flowable = ListFlowable(
+                    list_items,
+                    bulletType=bullet_type,
+                    leftIndent=20,
+                    spaceBefore=6,
+                    spaceAfter=6
+                )
+                elements.append(list_flowable)
+            return elements
+        
+        # Process paragraphs with formatting
+        p_elements = soup.find_all('p')
+        if p_elements:
+            for p in p_elements:
+                text = process_formatted_text(p)
+                if text.strip():
+                    elements.append(Paragraph(text, normal_style))
+        else:
+            # If no specific paragraph tags, process the whole text
+            text = process_formatted_text(soup)
+            # Split by newlines for multiple paragraphs
+            paragraphs = [p for p in text.split('\n') if p.strip()]
+            for para in paragraphs:
+                if para.strip():
+                    elements.append(Paragraph(para.strip(), normal_style))
         
         return elements
     except Exception as e:
@@ -552,32 +628,68 @@ def process_html_content(content, doc_width, normal_style):
 
 def programa_header_footer(canvas, doc, programa):
     canvas.saveState()
-    canvas.setFont('Helvetica-Bold', 12)
-    header_y = doc.pagesize[1] - inch/4
-    canvas.drawString(doc.leftMargin, header_y, "PROGRAMA CRUB")
     
-    canvas.setStrokeColorRGB(0, 0, 0)
-    canvas.setLineWidth(1.5)
-    canvas.line(doc.leftMargin, header_y - 8, 
-              doc.pagesize[0] - doc.rightMargin, header_y - 8)
+    # Get the path to the logo
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    logo_path = os.path.join(current_dir, 'static', 'img', 'logounco.webp')
     
-    canvas.setFont('Helvetica', 8)
-    footer_y = doc.bottomMargin - 30
+    # Draw the logo if it exists
+    if os.path.exists(logo_path):
+        logo_width = 35*mm
+        logo_height = 35*mm
+        canvas.drawImage(logo_path, doc.leftMargin, doc.pagesize[1] - 38*mm, 
+                        width=logo_width, height=logo_height, preserveAspectRatio=True,
+                        anchor='n')
     
-    # Add signatures in specific order
+    # Add centered header text aligned with logo's top margin
+    # Using grey color with normal line spacing
+    canvas.setFillColorRGB(0.5, 0.5, 0.5)  # Medium grey color for watermark effect
+    
+    canvas.setFont('Helvetica-Bold', 9)
+    header_x = doc.pagesize[0] / 2  # Center of page
+    header_y = doc.pagesize[1] - 10*mm  # Higher position (matching logo's top margin)
+    canvas.drawCentredString(header_x, header_y, "Secretaría Académica")
+    
+    canvas.setFont('Helvetica', 9)
+    canvas.drawCentredString(header_x, header_y - 12, "Centro Regional Universitario Bariloche")
+    canvas.drawCentredString(header_x, header_y - 24, "Universidad Nacional del Comahue")
+    
+    # Add subtle line divider below header text
+    canvas.setLineWidth(0.5)
+    canvas.setStrokeColorRGB(0.7, 0.7, 0.7)  # Light grey line
+    line_y = header_y - 32  # Position line below the header text
+    canvas.line(doc.leftMargin + 50, line_y, doc.pagesize[0] - doc.leftMargin - 50, line_y)
+    
+    # Reset fill color to black for footer content
+    canvas.setFillColorRGB(0, 0, 0)
+    canvas.setStrokeColorRGB(0, 0, 0)  # Reset stroke color too
+    
+    canvas.setFont('Helvetica', 6)  # Smaller font size for signatures
+    # Calculate positions for signatures at the bottom
+    firma_x = 2*mm  # Left alignment
+    
+    # First determine how many firma lines we'll have
+    lines_count = 0
+    if programa.get('firma_doc', ''): lines_count += 1
+    if programa.get('firma_depto', ''): lines_count += 1
+    if programa.get('firma_sac', ''): lines_count += 1
+    
+    # Calculate initial y position to fit all lines
+    footer_y = 10 + (lines_count * 4)  # 2 points buffer from bottom + 4pt spacing per line
+    
     firma_doc = programa.get('firma_doc', '')
     if firma_doc:
-        canvas.drawString(doc.leftMargin, footer_y, f"Firma Docente: {firma_doc}")
-        footer_y -= 15
+        canvas.drawString(firma_x, footer_y, f"{firma_doc}")
+        footer_y -= 8  # Minimal spacing between lines
     
     firma_depto = programa.get('firma_depto', '')
     if firma_depto:
-        canvas.drawString(doc.leftMargin, footer_y, f"Firma Departamento: {firma_depto}")
-        footer_y -= 15
+        canvas.drawString(firma_x, footer_y, f"{firma_depto}")
+        footer_y -= 8  # Minimal spacing between lines
     
     firma_sac = programa.get('firma_sac', '')
     if firma_sac:
-        canvas.drawString(doc.leftMargin, footer_y, f"Firma SAC: {firma_sac}")
+        canvas.drawString(firma_x, footer_y, f"{firma_sac}")
     
     canvas.restoreState()
 
@@ -597,17 +709,17 @@ def generate_program_pdf(programa):
     normal_style = ParagraphStyle(
         'CustomNormal',
         parent=styles['Normal'],
-        fontSize=10,
-        spaceAfter=4,
-        leading=12
+        fontSize=11,
+        spaceAfter=8,
+        leading=14
     )
     
     field_style = ParagraphStyle(
         'FieldStyle',
         parent=styles['Normal'],
-        fontSize=10,
-        spaceAfter=4,
-        leading=12,
+        fontSize=11,
+        spaceAfter=8,
+        leading=14,
         leftIndent=0,
         fontName='Helvetica-Bold'
     )
@@ -615,71 +727,171 @@ def generate_program_pdf(programa):
     pdf_buffer = BytesIO()
     doc = SimpleDocTemplate(
         pdf_buffer,
-        pagesize=letter,
-        topMargin=50,
-        bottomMargin=90,
-        leftMargin=inch,
-        rightMargin=inch
+        pagesize=A4,
+        topMargin=20*mm,
+        bottomMargin=45*mm,
+        leftMargin=25*mm,
+        rightMargin=25*mm
     )
     
+    # Generate program elements using the helper function
+    programa_elements = generate_program_content(programa, title_style, field_style, normal_style)
+    
+    # Create header/footer function for this program
+    def make_header_footer_function(prog):
+        return lambda canvas, doc: programa_header_footer(canvas, doc, prog)
+    
+    header_footer_fn = make_header_footer_function(programa)
+    doc.build(programa_elements, onFirstPage=header_footer_fn, onLaterPages=header_footer_fn)
+    
+    pdf_buffer.seek(0)
+    return pdf_buffer
+
+def generate_program_content(programa, title_style, field_style, normal_style):
+    """Helper function to generate the content elements for a program PDF"""
     programa_elements = []
     
-    programa_elements.append(Spacer(1, 0.25*inch))
-    programa_elements.append(Paragraph("PROGRAMA", title_style))
-    programa_elements.append(Spacer(1, 0.1*inch))
+    programa_elements.append(Spacer(1, 0.45*inch))  # Increased spacing at top
     
-    # Add program fields
+    # Replace PROGRAMA title with AÑO ACADÉMICO: ano_academico
+    ano_academico = programa.get('ano_academico', '')
+    programa_elements.append(Paragraph(f"AÑO ACADÉMICO: {ano_academico}", title_style))
+    programa_elements.append(Spacer(1, 0.05*inch))
+    
+    # Reordered fields according to the requested format
+    # Add department first if it exists
+    depto = programa.get('depto', '')
+    if depto and depto.strip():
+        programa_elements.append(Paragraph(f"DEPARTAMENTO: {depto}", field_style))
+        programa_elements.append(Spacer(1, 0.05*inch))
+    
+    # Program with code
+    nombre_materia = programa.get('nombre_materia', '')
+    cod_guarani = programa.get('cod_guarani', '')
+    if nombre_materia and nombre_materia.strip():
+        optativa = programa.get('optativa', '')
+        optativa_text = "(OPT)" if optativa and optativa.lower() in ["si", "sí"] else ""
+        programa_elements.append(Paragraph(f"PROGRAMA DE CÁTEDRA: {nombre_materia} {optativa_text}", field_style))
+        if cod_guarani and cod_guarani.strip():
+            programa_elements.append(Paragraph(f"(Cod. Guaraní: {cod_guarani})", normal_style))
+        programa_elements.append(Spacer(1, 0.05*inch))
+    
+    # Optativa - only show if it's "Si" or "Sí"
+    optativa = programa.get('optativa', '')
+    if optativa and optativa.strip().lower() in ["si", "sí"]:
+        programa_elements.append(Paragraph(f"OPTATIVA: {optativa}", field_style))
+        programa_elements.append(Spacer(1, 0.05*inch))
+    
+    # Career info
+    carrera = programa.get('nombre_carrera', '')
+    cod_carrera = programa.get('cod_carrera', '')
+    if carrera and carrera.strip():
+        programa_elements.append(Paragraph(f"CARRERA A LA QUE PERTENECE Y/O SE OFRECE:", field_style))
+        career_text = carrera
+        if cod_carrera and cod_carrera.strip():
+            career_text += f" - ({cod_carrera})"
+        programa_elements.append(Paragraph(career_text, normal_style))
+        programa_elements.append(Spacer(1, 0.1*inch))  # Increased spacing after career
+    
+    # Process fields that should only be shown if they have non-empty values
     fields = [
-        ('MATERIA', 'nombre_materia'),
-        ('AÑO ACADÉMICO', 'ano_academico'),
-        ('DEPARTAMENTO', 'depto'),
-        ('PROGRAMA DE CÁTEDRA', lambda p: f"{p.get('nombre_materia', '')} (Cod. Guaraní: {p.get('cod_guarani', '')})"),
-        ('OPTATIVA', 'optativa'),
-        ('CARRERA A LA QUE PERTENECE Y/O SE OFRECE', lambda p: f"{p.get('nombre_carrera', '')} ({p.get('cod_carrera', '')})"),
         ('ÁREA', 'area'),
         ('ORIENTACIÓN', 'orientacion'),
-        ('PLAN DE ESTUDIOS ORD.', 'plan_ordenanzas'),
-        ('TRAYECTO (PEF)', 'trayecto'),
-        ('CARGA HORARIA SEMANAL SEGÚN PLAN DE ESTUDIOS', 'horas_semanales'),
-        ('CARGA HORARIA TOTAL', 'horas_totales'),
-        ('RÉGIMEN', 'periodo_dictado')
+        ('PLAN DE ESTUDIOS ORD.', 'plan_ordenanzas')
     ]
     
-    doc_width = letter[0] - 2*inch
-    
     for label, field in fields:
-        value = field(programa) if callable(field) else programa.get(field, '')
-        if value:
+        value = programa.get(field, '')
+        if value and value.strip():
             programa_elements.append(Paragraph(f"{label}: {value}", field_style))
             programa_elements.append(Spacer(1, 0.05*inch))
     
-    # Add equipo de cátedra
-    equipo = f"{programa.get('apellido_resp', '')}, {programa.get('nombre_resp', '')} – {programa.get('cargo_resp', '')}"
-    programa_elements.append(Paragraph(f"EQUIPO DE CÁTEDRA: {equipo}", field_style))
+    # Handle TRAYECTO (PEF) separately - only show if not "N/C"
+    trayecto = programa.get('trayecto', '')
+    if trayecto and trayecto.strip() and trayecto.strip().upper() != "N/C":
+        programa_elements.append(Paragraph(f"TRAYECTO (PEF): {trayecto}", field_style))
+        programa_elements.append(Spacer(1, 0.05*inch))
     
+    # Process numerical fields - only show if they have non-zero values
+    fields = [
+        ('CARGA HORARIA SEMANAL SEGÚN PLAN DE ESTUDIOS', 'horas_semanales'),
+        ('CARGA HORARIA TOTAL', 'horas_totales')
+    ]
+    
+    for label, field in fields:
+        value = programa.get(field, '')
+        try:
+            # Try to convert to float to handle both string and numeric values
+            num_value = float(str(value).replace(',', '.'))
+            if num_value > 0:
+                programa_elements.append(Paragraph(f"{label}: {value}", field_style))
+                programa_elements.append(Spacer(1, 0.05*inch))
+        except (ValueError, TypeError):
+            # If conversion fails but we have a non-empty string, show it
+            if value and str(value).strip():
+                programa_elements.append(Paragraph(f"{label}: {value}", field_style))
+                programa_elements.append(Spacer(1, 0.05*inch))
+    
+    # Add RÉGIMEN if it exists
+    regimen = programa.get('periodo_dictado', '')
+    if regimen and regimen.strip():
+        programa_elements.append(Paragraph(f"RÉGIMEN: {regimen}", field_style))
+        programa_elements.append(Spacer(1, 0.1*inch))  # Increased spacing after regimen
+    
+    # Add equipo de cátedra
+    programa_elements.append(Paragraph(f"EQUIPO DE CÁTEDRA:", field_style))
+    
+    # Only add responsible person info if we have at least one of the fields
+    apellido_resp = programa.get('apellido_resp', '').strip()
+    nombre_resp = programa.get('nombre_resp', '').strip()
+    cargo_resp = programa.get('cargo_resp', '').strip()
+    
+    if any([apellido_resp, nombre_resp, cargo_resp]):
+        equipo_parts = []
+        if apellido_resp or nombre_resp:
+            name_parts = [p for p in [apellido_resp, nombre_resp] if p]
+            equipo_parts.append(", ".join(name_parts))
+        if cargo_resp:
+            equipo_parts.append(cargo_resp)
+        equipo = " - ".join(equipo_parts)
+        programa_elements.append(Paragraph(equipo, normal_style))
+    
+    # Add additional team members if they exist
     if programa.get('equipo_catedra'):
         programa_elements.append(Paragraph(programa.get('equipo_catedra', ''), normal_style))
-    programa_elements.append(Spacer(1, 0.1*inch))
+    programa_elements.append(Spacer(1, 0.15*inch))  # Increased spacing after team
     
     # Add correlativas section
     programa_elements.append(Paragraph("ASIGNATURAS CORRELATIVAS (según plan de estudios):", field_style))
     programa_elements.append(Spacer(1, 0.05*inch))
     
-    programa_elements.append(Paragraph("PARA CURSAR:", normal_style))
+    # Para cursar section
+    programa_elements.append(Paragraph("- PARA CURSAR:", normal_style))
     correlativas_cursar = programa.get('correlativas_para_cursar', '').split('\n')
+    has_cursar = False
     for corr in correlativas_cursar:
         if corr.strip():
             programa_elements.append(Paragraph(corr.strip(), normal_style))
+            has_cursar = True
+    if not has_cursar:
+        programa_elements.append(Paragraph("No posee correlativas para cursar", normal_style))
     
     programa_elements.append(Spacer(1, 0.05*inch))
-    programa_elements.append(Paragraph("PARA RENDIR EXAMEN FINAL:", normal_style))
+    
+    # Para rendir section
+    programa_elements.append(Paragraph("- PARA RENDIR EXAMEN FINAL:", normal_style))
     correlativas_aprobar = programa.get('correlativas_para_aprobar', '').split('\n')
+    has_aprobar = False
     for corr in correlativas_aprobar:
         if corr.strip():
             programa_elements.append(Paragraph(corr.strip(), normal_style))
-    programa_elements.append(Spacer(1, 0.1*inch))
+            has_aprobar = True
+    if not has_aprobar:
+        programa_elements.append(Paragraph("No posee correlativas para rendir", normal_style))
     
-    # Add content sections
+    programa_elements.append(Spacer(1, 0.15*inch))  # Increased spacing after correlativas
+    
+    # Process main content sections
     sections = [
         ('FUNDAMENTACIÓN', 'fundamentacion'),
         ('OBJETIVOS', 'objetivos'),
@@ -690,44 +902,49 @@ def generate_program_pdf(programa):
         ('EVALUACIÓN Y CONDICIONES DE ACREDITACIÓN', 'evaluacion_acreditacion'),
     ]
     
+    doc_width = A4[0] - 2*25*mm
     for label, field in sections:
         content = programa.get(field)
-        if content:
+        if content and content.strip():
             programa_elements.append(Paragraph(f"{label}:", field_style))
-            programa_elements.append(Spacer(1, 0.05*inch))
             html_elements = process_html_content(content, doc_width, normal_style)
             programa_elements.extend(html_elements)
-            programa_elements.append(Spacer(1, 0.1*inch))
+            programa_elements.append(Spacer(1, 0.15*inch))  # Increased spacing between sections
     
     # Add distribution horaria section
     programa_elements.append(Paragraph("DISTRIBUCIÓN HORARIA:", field_style))
-    programa_elements.append(Paragraph(f"Horas teóricas: {programa.get('horas_teoricas', '')}", normal_style))
-    programa_elements.append(Paragraph(f"Horas prácticas: {programa.get('horas_practicas', '')}", normal_style))
-    programa_elements.append(Paragraph(
-        f"Horas teórico-prácticas: {programa.get('horas_teoricopracticas', '')} (solo para LENB y LBIB)", 
-        normal_style
-    ))
     
+    # Only show hours if they have non-zero values
+    for label, field in [
+        ('Horas teóricas', 'horas_teoricas'),
+        ('Horas prácticas', 'horas_practicas'),
+        ('Horas teórico-prácticas', 'horas_teoricopracticas')
+    ]:
+        value = programa.get(field, '')
+        try:
+            num_value = float(str(value).replace(',', '.'))
+            if num_value > 0:
+                extra_text = " (solo para LENB y LBIB)" if field == 'horas_teoricopracticas' else ""
+                programa_elements.append(Paragraph(f"{label}: {value}{extra_text}", normal_style))
+        except (ValueError, TypeError):
+            if value and str(value).strip():
+                extra_text = " (solo para LENB y LBIB)" if field == 'horas_teoricopracticas' else ""
+                programa_elements.append(Paragraph(f"{label}: {value}{extra_text}", normal_style))
+    
+    # Add additional distribution info if it exists
     if programa.get('distribucion_horaria'):
         html_elements = process_html_content(programa.get('distribucion_horaria', ''), doc_width, normal_style)
         programa_elements.extend(html_elements)
-    programa_elements.append(Spacer(1, 0.1*inch))
+    programa_elements.append(Spacer(1, 0.15*inch))
     
-    # Add cronograma if exists
-    if programa.get('cronograma_tentativo'):
+    # Add cronograma if it exists
+    cronograma = programa.get('cronograma_tentativo', '')
+    if cronograma and cronograma.strip():
         programa_elements.append(Paragraph("CRONOGRAMA TENTATIVO:", field_style))
-        programa_elements.append(Spacer(1, 0.05*inch))
-        html_elements = process_html_content(programa.get('cronograma_tentativo', ''), doc_width, normal_style)
+        html_elements = process_html_content(cronograma, doc_width, normal_style)
         programa_elements.extend(html_elements)
     
-    def make_header_footer_function(prog):
-        return lambda canvas, doc: programa_header_footer(canvas, doc, prog)
-    
-    header_footer_fn = make_header_footer_function(programa)
-    doc.build(programa_elements, onFirstPage=header_footer_fn, onLaterPages=header_footer_fn)
-    
-    pdf_buffer.seek(0)
-    return pdf_buffer
+    return programa_elements
 
 # Search Options API Routes
 @app.route('/api/search_options')

@@ -45,21 +45,13 @@
                 <h2 class="mb-3">Programas de {{ career_name }}</h2>
                 <p class="text-muted">Código: {{ carrera }}</p>
                 
-                <!-- Selector de años -->
+                <!-- Selector de años - Removed Año de Cursada filter -->
                 <div class="mb-4">
                     <div class="row">
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label for="academicYearSelect" class="form-label">Año Académico:</label>
                                 <select class="form-select" id="academicYearSelect" style="max-width: 300px;">
-                                    <option value="">Seleccionar año</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="col-md-6 ps-md-4">
-                            <div class="mb-3">
-                                <label for="planYearSelect" class="form-label">Año de Cursada:</label>
-                                <select class="form-select" id="planYearSelect" style="max-width: 300px;">
                                     <option value="">Seleccionar año</option>
                                 </select>
                             </div>
@@ -88,13 +80,7 @@
                         <div id="programs-container" class="d-none">
                             <div class="table-responsive">
                                 <table class="table table-hover">
-                                    <thead class="table-light">
-                                        <tr>
-                                            <th>Materia</th>
-                                            <th>Año de Cursada</th>
-                                            <th>Acción</th>
-                                        </tr>
-                                    </thead>
+                                    <!-- Removed table headers as requested -->
                                     <tbody id="programs-list">
                                         <!-- Programs will be populated via JavaScript -->
                                     </tbody>
@@ -126,19 +112,16 @@
                 ? '/programas' 
                 : '';
                 
-            const planYearSelect = document.getElementById('planYearSelect');
             const academicYearSelect = document.getElementById('academicYearSelect');
             const loadingIndicator = document.getElementById('loading');
             const programsContainer = document.getElementById('programs-container');
             const programsList = document.getElementById('programs-list');
             const noPrograms = document.getElementById('no-programs');
             
-            // Load both year options when page loads
-            loadYearOptions('cursada', planYearSelect);
+            // Load academic year options when page loads
             loadYearOptions('academico', academicYearSelect);
             
-            // Year select change handlers
-            planYearSelect.addEventListener('change', loadPrograms);
+            // Year select change handler
             academicYearSelect.addEventListener('change', loadPrograms);
             
             // Function to load year options
@@ -166,21 +149,18 @@
             
             // Function to load programs with current filters
             function loadPrograms() {
-                const planYear = planYearSelect.value;
                 const academicYear = academicYearSelect.value;
                 
                 // Update URL with current filters
                 const newUrl = new URL(window.location);
-                if (planYear) {
-                    newUrl.searchParams.set('plan_year', planYear);
-                } else {
-                    newUrl.searchParams.delete('plan_year');
-                }
                 if (academicYear) {
                     newUrl.searchParams.set('academic_year', academicYear);
                 } else {
                     newUrl.searchParams.delete('academic_year');
                 }
+                // Remove plan_year parameter if it exists
+                newUrl.searchParams.delete('plan_year');
+                
                 window.history.pushState({}, '', newUrl);
                 
                 // Show loading
@@ -189,9 +169,6 @@
                 
                 // Build API URL
                 let apiUrl = `${baseUrlPath}/api/programs_by_career_year?carrera=${encodeURIComponent('{{ carrera }}')}`;
-                if (planYear) {
-                    apiUrl += `&plan_year=${encodeURIComponent(planYear)}`;
-                }
                 if (academicYear) {
                     apiUrl += `&academic_year=${encodeURIComponent(academicYear)}`;
                 }
@@ -212,18 +189,12 @@
                         } else {
                             noPrograms.classList.add('d-none');
                             
-                            // Sort programs by academic year and plan year in descending order
+                            // Sort programs by academic year in descending order
                             programs.sort((a, b) => {
-                                // First sort by academic year
+                                // Sort by academic year
                                 const yearA = parseInt(a.ano_academico) || 0;
                                 const yearB = parseInt(b.ano_academico) || 0;
-                                if (yearA !== yearB) {
-                                    return yearB - yearA;
-                                }
-                                // If academic years are equal, sort by plan year
-                                const planYearA = parseInt(a.ano_plan) || 0;
-                                const planYearB = parseInt(b.ano_plan) || 0;
-                                return planYearB - planYearA;
+                                return yearB - yearA;
                             });
                             
                             programs.forEach((program, index) => {
@@ -232,7 +203,7 @@
                                     const yearRow = document.createElement('tr');
                                     yearRow.className = 'table-light year-separator';
                                     const yearCell = document.createElement('td');
-                                    yearCell.colSpan = 3;
+                                    yearCell.colSpan = 2;
                                     yearCell.className = 'py-3';
                                     yearCell.innerHTML = `<h5 class="mb-0">Año ${program.ano_academico}</h5>`;
                                     yearRow.appendChild(yearCell);
@@ -246,15 +217,9 @@
                                 materiaCell.textContent = program.nombre_materia || 'Sin nombre';
                                 row.appendChild(materiaCell);
                                 
-                                // Año de cursada
-                                const planYearCell = document.createElement('td');
-                                planYearCell.textContent = program.ano_plan ? 
-                                    `${program.ano_plan}° Año${program.periodo_plan ? ' - ' + program.periodo_plan : ''}` : 
-                                    '-';
-                                row.appendChild(planYearCell);
-                                
                                 // Acción (botón de descarga)
                                 const actionCell = document.createElement('td');
+                                actionCell.className = 'text-end'; // Align to the right
                                 const downloadBtn = document.createElement('a');
                                 downloadBtn.href = `${baseUrlPath}/download/programa/${program.id_programa}`;
                                 downloadBtn.className = 'btn btn-sm btn-primary';
@@ -272,7 +237,7 @@
                     })
                     .catch(error => {
                         console.error('Error:', error);
-                        programsList.innerHTML = '<tr><td colspan="5" class="text-center text-danger">Error al cargar los programas</td></tr>';
+                        programsList.innerHTML = '<tr><td colspan="2" class="text-center text-danger">Error al cargar los programas</td></tr>';
                         loadingIndicator.classList.add('d-none');
                         programsContainer.classList.remove('d-none');
                         noPrograms.classList.add('d-none');
@@ -281,32 +246,20 @@
             
             // Initial load based on URL parameters
             const urlParams = new URLSearchParams(window.location.search);
-            const planYear = urlParams.get('plan_year');
             const academicYear = urlParams.get('academic_year');
             
             // Set initial values if present in URL
-            if (planYear || academicYear) {
-                if (planYear) {
-                    // Wait for options to load before setting value
-                    const planYearInterval = setInterval(() => {
-                        if (planYearSelect.querySelector(`option[value="${planYear}"]`)) {
-                            planYearSelect.value = planYear;
-                            clearInterval(planYearInterval);
-                        }
-                    }, 100);
-                }
-                if (academicYear) {
-                    const academicYearInterval = setInterval(() => {
-                        if (academicYearSelect.querySelector(`option[value="${academicYear}"]`)) {
-                            academicYearSelect.value = academicYear;
-                            clearInterval(academicYearInterval);
-                        }
-                    }, 100);
-                }
-            } else {
-                // Load all programs if no filters
-                loadPrograms();
+            if (academicYear) {
+                const academicYearInterval = setInterval(() => {
+                    if (academicYearSelect.querySelector(`option[value="${academicYear}"]`)) {
+                        academicYearSelect.value = academicYear;
+                        clearInterval(academicYearInterval);
+                    }
+                }, 100);
             }
+            
+            // Load all programs if no filters
+            loadPrograms();
         });
     </script>
 </body>
