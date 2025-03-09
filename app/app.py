@@ -710,15 +710,18 @@ def generate_program_pdf(programa):
         'CustomNormal',
         parent=styles['Normal'],
         fontSize=11,
-        spaceAfter=8,
-        leading=14
+        spaceAfter=6,
+        leading=14,
+        wordWrap='LTR',  # Left-to-right word wrap
+        allowWidows=0,   # Prevent widowed lines
+        allowOrphans=0   # Prevent orphaned lines
     )
     
     field_style = ParagraphStyle(
         'FieldStyle',
         parent=styles['Normal'],
         fontSize=11,
-        spaceAfter=8,
+        spaceAfter=6,
         leading=14,
         leftIndent=0,
         fontName='Helvetica-Bold'
@@ -728,10 +731,14 @@ def generate_program_pdf(programa):
     doc = SimpleDocTemplate(
         pdf_buffer,
         pagesize=A4,
-        topMargin=20*mm,
-        bottomMargin=45*mm,
-        leftMargin=25*mm,
-        rightMargin=25*mm
+        topMargin=20*mm,     # Keep top margin for header
+        bottomMargin=15*mm,   # Reduced bottom margin
+        leftMargin=25*mm,    # Keep left margin for readability
+        rightMargin=25*mm,   # Keep right margin for readability
+        allowSplitting=1,    # Allow more aggressive content splitting
+        displayDocTitle=True, # Better PDF metadata
+        splitLongWords=1,    # Allow long words to split
+        pageCompression=1    # Compress the PDF
     )
     
     # Generate program elements using the helper function
@@ -751,19 +758,31 @@ def generate_program_content(programa, title_style, field_style, normal_style):
     """Helper function to generate the content elements for a program PDF"""
     programa_elements = []
     
-    programa_elements.append(Spacer(1, 0.45*inch))  # Increased spacing at top
+    # Create a justified style for content sections
+    justified_style = ParagraphStyle(
+        'JustifiedContent',
+        parent=normal_style,
+        alignment=4,  # 4 = Justified
+        spaceAfter=6,
+        leading=14
+    )
+    
+    programa_elements.append(Spacer(1, 0.35*inch))
+    
+    # Header sections (unchanged)
+    programa_elements.append(Spacer(1, 0.35*inch))  # Reduced from 0.45 for initial spacing
     
     # Replace PROGRAMA title with AÑO ACADÉMICO: ano_academico
     ano_academico = programa.get('ano_academico', '')
     programa_elements.append(Paragraph(f"AÑO ACADÉMICO: {ano_academico}", title_style))
-    programa_elements.append(Spacer(1, 0.05*inch))
+    programa_elements.append(Spacer(1, 0.03*inch))  # Reduced from 0.05
     
     # Reordered fields according to the requested format
     # Add department first if it exists
     depto = programa.get('depto', '')
     if depto and depto.strip():
         programa_elements.append(Paragraph(f"DEPARTAMENTO: {depto}", field_style))
-        programa_elements.append(Spacer(1, 0.05*inch))
+        programa_elements.append(Spacer(1, 0.03*inch))  # Reduced spacing after basic info
     
     # Program with code
     nombre_materia = programa.get('nombre_materia', '')
@@ -774,13 +793,13 @@ def generate_program_content(programa, title_style, field_style, normal_style):
         programa_elements.append(Paragraph(f"PROGRAMA DE CÁTEDRA: {nombre_materia} {optativa_text}", field_style))
         if cod_guarani and cod_guarani.strip():
             programa_elements.append(Paragraph(f"(Cod. Guaraní: {cod_guarani})", normal_style))
-        programa_elements.append(Spacer(1, 0.05*inch))
+        programa_elements.append(Spacer(1, 0.03*inch))  # Reduced spacing after basic info
     
     # Optativa - only show if it's "Si" or "Sí"
     optativa = programa.get('optativa', '')
     if optativa and optativa.strip().lower() in ["si", "sí"]:
         programa_elements.append(Paragraph(f"OPTATIVA: {optativa}", field_style))
-        programa_elements.append(Spacer(1, 0.05*inch))
+        programa_elements.append(Spacer(1, 0.03*inch))  # Reduced spacing after basic info
     
     # Career info
     carrera = programa.get('nombre_carrera', '')
@@ -791,7 +810,7 @@ def generate_program_content(programa, title_style, field_style, normal_style):
         if cod_carrera and cod_carrera.strip():
             career_text += f" - ({cod_carrera})"
         programa_elements.append(Paragraph(career_text, normal_style))
-        programa_elements.append(Spacer(1, 0.1*inch))  # Increased spacing after career
+        programa_elements.append(Spacer(1, 0.08*inch))  # Reduced from 0.15 after correlativas
     
     # Process fields that should only be shown if they have non-empty values
     fields = [
@@ -804,13 +823,13 @@ def generate_program_content(programa, title_style, field_style, normal_style):
         value = programa.get(field, '')
         if value and value.strip():
             programa_elements.append(Paragraph(f"{label}: {value}", field_style))
-            programa_elements.append(Spacer(1, 0.05*inch))
+            programa_elements.append(Spacer(1, 0.03*inch))  # Reduced spacing after basic info
     
     # Handle TRAYECTO (PEF) separately - only show if not "N/C"
     trayecto = programa.get('trayecto', '')
     if trayecto and trayecto.strip() and trayecto.strip().upper() != "N/C":
         programa_elements.append(Paragraph(f"TRAYECTO (PEF): {trayecto}", field_style))
-        programa_elements.append(Spacer(1, 0.05*inch))
+        programa_elements.append(Spacer(1, 0.03*inch))  # Reduced spacing after basic info
     
     # Process numerical fields - only show if they have non-zero values
     fields = [
@@ -825,18 +844,18 @@ def generate_program_content(programa, title_style, field_style, normal_style):
             num_value = float(str(value).replace(',', '.'))
             if num_value > 0:
                 programa_elements.append(Paragraph(f"{label}: {value}", field_style))
-                programa_elements.append(Spacer(1, 0.05*inch))
+                programa_elements.append(Spacer(1, 0.03*inch))  # Reduced spacing after basic info
         except (ValueError, TypeError):
             # If conversion fails but we have a non-empty string, show it
             if value and str(value).strip():
                 programa_elements.append(Paragraph(f"{label}: {value}", field_style))
-                programa_elements.append(Spacer(1, 0.05*inch))
+                programa_elements.append(Spacer(1, 0.03*inch))  # Reduced spacing after basic info
     
     # Add RÉGIMEN if it exists
     regimen = programa.get('periodo_dictado', '')
     if regimen and regimen.strip():
         programa_elements.append(Paragraph(f"RÉGIMEN: {regimen}", field_style))
-        programa_elements.append(Spacer(1, 0.1*inch))  # Increased spacing after regimen
+        programa_elements.append(Spacer(1, 0.08*inch))  # Reduced from 0.15 after correlativas
     
     # Add equipo de cátedra
     programa_elements.append(Paragraph(f"EQUIPO DE CÁTEDRA:", field_style))
@@ -859,11 +878,11 @@ def generate_program_content(programa, title_style, field_style, normal_style):
     # Add additional team members if they exist
     if programa.get('equipo_catedra'):
         programa_elements.append(Paragraph(programa.get('equipo_catedra', ''), normal_style))
-    programa_elements.append(Spacer(1, 0.15*inch))  # Increased spacing after team
+    programa_elements.append(Spacer(1, 0.08*inch))  # Reduced from 0.15 after correlativas
     
     # Add correlativas section
     programa_elements.append(Paragraph("ASIGNATURAS CORRELATIVAS (según plan de estudios):", field_style))
-    programa_elements.append(Spacer(1, 0.05*inch))
+    programa_elements.append(Spacer(1, 0.03*inch))  # Reduced from 0.05
     
     # Para cursar section
     programa_elements.append(Paragraph("- PARA CURSAR:", normal_style))
@@ -876,7 +895,7 @@ def generate_program_content(programa, title_style, field_style, normal_style):
     if not has_cursar:
         programa_elements.append(Paragraph("No posee correlativas para cursar", normal_style))
     
-    programa_elements.append(Spacer(1, 0.05*inch))
+    programa_elements.append(Spacer(1, 0.03*inch))  # Reduced from 0.05
     
     # Para rendir section
     programa_elements.append(Paragraph("- PARA RENDIR EXAMEN FINAL:", normal_style))
@@ -889,9 +908,9 @@ def generate_program_content(programa, title_style, field_style, normal_style):
     if not has_aprobar:
         programa_elements.append(Paragraph("No posee correlativas para rendir", normal_style))
     
-    programa_elements.append(Spacer(1, 0.15*inch))  # Increased spacing after correlativas
+    programa_elements.append(Spacer(1, 0.08*inch))  # Reduced from 0.15 after correlativas
     
-    # Process main content sections
+    # Process main content sections with justified text
     sections = [
         ('FUNDAMENTACIÓN', 'fundamentacion'),
         ('OBJETIVOS', 'objetivos'),
@@ -907,14 +926,14 @@ def generate_program_content(programa, title_style, field_style, normal_style):
         content = programa.get(field)
         if content and content.strip():
             programa_elements.append(Paragraph(f"{label}:", field_style))
-            html_elements = process_html_content(content, doc_width, normal_style)
+            html_elements = process_html_content(content, doc_width, justified_style)
             programa_elements.extend(html_elements)
-            programa_elements.append(Spacer(1, 0.15*inch))  # Increased spacing between sections
+            programa_elements.append(Spacer(1, 0.1*inch))
     
     # Add distribution horaria section
     programa_elements.append(Paragraph("DISTRIBUCIÓN HORARIA:", field_style))
     
-    # Only show hours if they have non-zero values
+    # Hours display (use justified style for descriptive text)
     for label, field in [
         ('Horas teóricas', 'horas_teoricas'),
         ('Horas prácticas', 'horas_practicas'),
@@ -931,17 +950,17 @@ def generate_program_content(programa, title_style, field_style, normal_style):
                 extra_text = " (solo para LENB y LBIB)" if field == 'horas_teoricopracticas' else ""
                 programa_elements.append(Paragraph(f"{label}: {value}{extra_text}", normal_style))
     
-    # Add additional distribution info if it exists
+    # Add additional distribution info with justified text
     if programa.get('distribucion_horaria'):
-        html_elements = process_html_content(programa.get('distribucion_horaria', ''), doc_width, normal_style)
+        html_elements = process_html_content(programa.get('distribucion_horaria', ''), doc_width, justified_style)
         programa_elements.extend(html_elements)
-    programa_elements.append(Spacer(1, 0.15*inch))
+    programa_elements.append(Spacer(1, 0.1*inch))
     
-    # Add cronograma if it exists
+    # Add cronograma with justified text if it exists
     cronograma = programa.get('cronograma_tentativo', '')
     if cronograma and cronograma.strip():
         programa_elements.append(Paragraph("CRONOGRAMA TENTATIVO:", field_style))
-        html_elements = process_html_content(cronograma, doc_width, normal_style)
+        html_elements = process_html_content(cronograma, doc_width, justified_style)
         programa_elements.extend(html_elements)
     
     return programa_elements
