@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, send_file, jsonify
+from flask import Flask, render_template, request, send_file, jsonify, make_response
 import json
 import os
 import requests
@@ -121,12 +121,25 @@ def get_unique_years_by_type(programs, year_type, carrera):
     
     return sorted(list(years), reverse=True)  # Most recent years first
 
+@app.after_request
+def add_header(response):
+    """Add headers to prevent caching for dynamic content"""
+    if 'Cache-Control' not in response.headers:
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    return response
+
 # Home Page Route
 @app.route('/')
 def index():
     """Home page with career listing"""
     # Pass all careers from carreras.json to template
-    return render_template('index.html', careers=CARRERAS, now=datetime.now())
+    resp = make_response(render_template('index.html', careers=CARRERAS, now=datetime.now()))
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['Expires'] = '0'
+    return resp
 
 # Career Programs Route
 @app.route('/carrera/<carrera_nombre>')
