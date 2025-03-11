@@ -253,7 +253,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                             </p>
                                         </div>
                                         <div class="card-footer bg-transparent border-0">
-                                            <a href="${baseUrlPath}/download/plan/${planId}" class="btn btn-primary w-100" target="_blank">
+                                            <a href="${baseUrlPath}/download/plan/${encodeURIComponent(planId)}" class="btn btn-primary w-100" target="_blank">
                                                 <i class="fas fa-file-pdf me-1"></i> Descargar Plan
                                             </a>
                                         </div>

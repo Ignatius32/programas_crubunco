@@ -482,19 +482,26 @@ def download_programa(program_id):
 def download_plan(plan_version_siu):
     """Download a plan de estudios PDF"""
     try:
+        # Clean up any URL encoding in the parameter
+        plan_version_siu = plan_version_siu.strip()
+        
         # Find matching plan by exact plan_version_SIU match
         plan = next((p for p in PLANES_ESTUDIO if p['plan_version_SIU'] == plan_version_siu), None)
         if not plan or not plan.get('url_planEstudio'):
             return "Plan no encontrado o URL no disponible", 404
             
         url = plan['url_planEstudio']
-        response = requests.get(url, stream=True)
+        # Handle spaces and special characters in URL
+        url = url.replace(' ', '%20')
+        
+        response = requests.get(url, stream=True, verify=False)  # Added verify=False for self-signed certs
         
         if response.status_code != 200:
             return f"Error descargando el plan: HTTP {response.status_code}", 500
             
         buffer = BytesIO(response.content)
-        nombre_archivo = f"Plan_{plan.get('nombre', 'de_estudio')}_{plan_version_siu}.pdf"
+        nombre_carrera = plan.get('nombre', '').strip() or plan.get('carrera', 'de_estudio')
+        nombre_archivo = f"Plan_{nombre_carrera}_{plan_version_siu}.pdf"
         
         return send_file(
             buffer,
@@ -503,6 +510,7 @@ def download_plan(plan_version_siu):
             mimetype='application/pdf'
         )
     except Exception as e:
+        print(f"Error downloading plan: {str(e)}")  # Added logging
         return f"Error: {str(e)}", 500
 
 # Table style for HTML content
