@@ -198,7 +198,7 @@ def search_programs():
             if not matches_career:
                 matches = False
         
-        if ano_academico and ano_academico != program.get('ano_academico', ''):
+        if ano_academico and ano_academico != program.get('ano_academico', '').strip():
             matches = False
             
         if query:
@@ -380,7 +380,7 @@ def search_planes():
     
     return jsonify(results)
 
-# Get Planes de Estudio Options API Route
+# Get Planes de Estudios Options API Route
 @app.route('/api/planes_options')
 def planes_options():
     """Get available options for planes de estudio search form dropdowns"""
@@ -482,32 +482,19 @@ def download_programa(program_id):
 def download_plan(plan_version_siu):
     """Download a plan de estudios PDF"""
     try:
-        # Clean up any URL encoding in the parameter
-        plan_version_siu = plan_version_siu.strip()
-        
         # Find matching plan by exact plan_version_SIU match
         plan = next((p for p in PLANES_ESTUDIO if p['plan_version_SIU'] == plan_version_siu), None)
         if not plan or not plan.get('url_planEstudio'):
             return "Plan no encontrado o URL no disponible", 404
             
         url = plan['url_planEstudio']
-        # Handle spaces and special characters in URL
-        url = url.replace(' ', '%20')
-        
-        # Add base URL path if URL is relative
-        base_url = get_base_url_path()
-        if url.startswith('/'):
-            url = f"https://archivo.crub.uncoma.edu.ar{url}"
-            
-        response = requests.get(url, stream=True, verify=False)  # Added verify=False for self-signed certs
+        response = requests.get(url, stream=True)
         
         if response.status_code != 200:
-            print(f"Error downloading plan - URL: {url}, Status: {response.status_code}")
             return f"Error descargando el plan: HTTP {response.status_code}", 500
             
         buffer = BytesIO(response.content)
-        nombre_carrera = plan.get('nombre', '').strip() or plan.get('carrera', 'de_estudio')
-        nombre_archivo = f"Plan_{nombre_carrera}_{plan_version_siu}.pdf"
+        nombre_archivo = f"Plan_{plan.get('nombre', 'de_estudio')}_{plan_version_siu}.pdf"
         
         return send_file(
             buffer,
@@ -516,7 +503,6 @@ def download_plan(plan_version_siu):
             mimetype='application/pdf'
         )
     except Exception as e:
-        print(f"Error downloading plan: {str(e)}")  # Added logging
         return f"Error: {str(e)}", 500
 
 # Table style for HTML content
@@ -540,42 +526,245 @@ table_style = TableStyle([
     ('VALIGN', (0, 0), (-1, -1), 'MIDDLE')
 ])
 
-def process_formatted_text(element):
-    """
-    Recursively process HTML elements to preserve formatting like bold, italic, etc.
-    """
-    if element.name is None:  # It's a NavigableString
-        return element.string or ''
+def process_content(content, doc_width, style, is_html=False):
+    """Process content text into paragraphs, handling HTML and bullet points"""
+    elementos = []
     
-    # Start with an empty result
-    result = ''
+    if not content or not content.strip():
+        return elementos
     
-    # Process child elements
-    for child in element.children:
-        if child.name == 'strong' or child.name == 'b':
-            result += f"<b>{process_formatted_text(child)}</b>"
-        elif child.name == 'em' or child.name == 'i':
-            result += f"<i>{process_formatted_text(child)}</i>"
-        elif child.name == 'u':
-            result += f"<u>{process_formatted_text(child)}</u>"
-        elif child.name == 'br':
-            result += "<br/>"
-        elif child.name == 'a':
-            href = child.get('href', '#')
-            result += f"<a href='{href}'><u>{process_formatted_text(child)}</u></a>"
-        elif child.name in ['ul', 'ol', 'li', 'p', 'div', 'span']:
-            # For container elements, just process their content
-            result += process_formatted_text(child)
+    # Clean up Unicode characters that might appear as squares
+    content = normalize_unicode(content)
+
+    # Handle HTML content properly with tables
+    if is_html:
+        soup = BeautifulSoup(content, 'html.parser')
+        
+        # First check if there are any tables
+        tables = soup.find_all('table')
+        if tables:
+            for table in tables:
+                rows = []
+                # Process table headers
+                headers = table.find('thead')
+                if headers:
+                    header_row = []
+                    for th in headers.find_all(['th', 'td']):
+                        header_row.append(Paragraph(th.get_text().strip(), style))
+                    if header_row:
+                        rows.append(header_row)
+                
+                # Process table rows
+                for tr in table.find_all('tr'):
+                    if tr.parent.name == 'thead':
+                        continue  # Skip header rows already processed
+
+                    row = []
+                    for td in tr.find_all(['td', 'th']):
+                        row.append(Paragraph(td.get_text().strip(), style))
+
+                    if row:
+                        rows.append(row)
+
+                if rows:
+                    col_count = max([len(row) for row in rows])
+                    col_width = doc_width / col_count
+
+                    tbl = Table(rows, colWidths=[col_width] * col_count)
+                    tbl.setStyle(table_style)
+                    elementos.append(tbl)
+                    elementos.append(Spacer(1, 0.1*inch))
+
+            # Process remaining content outside of tables
+            remaining_text = ""
+            for element in soup.find_all(string=True):
+                if not any(parent.name == "table" for parent in element.parents):
+                    remaining_text += element.string + "\n"
+
+            # Process this remaining text for bullet points and normal paragraphs
+            if remaining_text.strip():
+                elementos.extend(process_plain_text(remaining_text, style))
+
+            return elementos
+
+        # If no tables found, continue with normal processing
+        # Get text with preserved newlines
+        text = soup.get_text('\n', strip=True)
+    else:
+        text = content
+
+    # Process plain text content (with or without bullet points)
+    return process_plain_text(text, style)
+
+def normalize_unicode(text):
+    """Normalize Unicode characters to improve rendering"""
+    if not text:
+        return text
+        
+    # Map of problematic Unicode code points to their replacements
+    unicode_replacements = {
+        '\u0080': '€',      # Euro sign
+        '\u0082': '‚',      # Single low-9 quotation mark
+        '\u0083': 'ƒ',      # Latin small f with hook
+        '\u0084': '„',      # Double low-9 quotation mark
+        '\u0085': '…',      # Horizontal ellipsis
+        '\u0086': '†',      # Dagger
+        '\u0087': '‡',      # Double dagger
+        '\u0088': 'ˆ',      # Modifier letter circumflex accent
+        '\u0089': '‰',      # Per mille sign
+        '\u008A': 'Š',      # Latin capital letter S with caron
+        '\u008B': '‹',      # Single left-pointing angle quotation
+        '\u008C': 'Œ',      # Latin capital ligature OE
+        '\u008E': 'Ž',      # Latin capital letter Z with caron
+        '\u0091': ''',      # Left single quotation mark
+        '\u0092': ''',      # Right single quotation mark
+        '\u0093': '"',      # Left double quotation mark
+        '\u0094': '"',      # Right double quotation mark
+        '\u0095': '•',      # Bullet
+        '\u0096': '–',      # En dash
+        '\u0097': '—',      # Em dash
+        '\u0098': '˜',      # Small tilde
+        '\u0099': '™',      # Trade mark sign
+        '\u009A': 'š',      # Latin small letter s with caron
+        '\u009B': '›',      # Single right-pointing angle quotation
+        '\u009C': 'œ',      # Latin small ligature oe
+        '\u009E': 'ž',      # Latin small letter z with caron
+        '\u009F': 'Ÿ',      # Latin capital letter Y with diaeresis
+        
+        # Other common characters that may appear as squares
+        '\u00A0': ' ',      # Non-breaking space
+        '\u00AD': '-',      # Soft hyphen
+        '\u2010': '-',      # Hyphen
+        '\u2011': '-',      # Non-breaking hyphen
+        '\u2012': '-',      # Figure dash
+        '\u2013': '–',      # En dash
+        '\u2014': '—',      # Em dash
+        '\u2015': '―',      # Horizontal bar
+        '\u2018': ''',      # Left single quotation mark
+        '\u2019': ''',      # Right single quotation mark
+        '\u201A': '‚',      # Single low-9 quotation mark
+        '\u201B': '‛',      # Single high-reversed-9 quotation mark
+        '\u201C': '"',      # Left double quotation mark
+        '\u201D': '"',      # Right double quotation mark
+        '\u201E': '„',      # Double low-9 quotation mark
+        '\u201F': '‟',      # Double high-reversed-9 quotation mark
+        '\u2020': '†',      # Dagger
+        '\u2021': '‡',      # Double dagger
+        '\u2022': '•',      # Bullet
+        '\u2026': '…',      # Horizontal ellipsis
+        '\u2028': ' ',      # Line separator
+        '\u2029': ' ',      # Paragraph separator
+        '\u2039': '‹',      # Single left-pointing angle quotation
+        '\u203A': '›',      # Single right-pointing angle quotation
+        '\u2212': '-',      # Minus sign
+        '\u2713': '✓',      # Check mark
+        '\u2714': '✔',      # Heavy check mark
+        '\u2716': '✖',      # Heavy multiplication X
+        '\u2717': '✗',      # Ballot X
+        '\u2718': '✘',      # Heavy ballot X
+        '\u271A': '✚',      # Heavy Greek cross
+        '\u271B': '✛',      # Open center cross
+        '\u271C': '✜',      # Heavy open center cross
+        '\uFEFF': '',       # Zero width no-break space (BOM)
+    }
+    
+    # Apply all replacements
+    for char, replacement in unicode_replacements.items():
+        if char in text:
+            text = text.replace(char, replacement)
+    
+    return text
+
+def process_plain_text(text, style):
+    """Process plain text, preserving bullet points, Unicode characters and their original order"""
+    elementos = []
+    
+    # Expanded list of bullet characters to detect
+    bullet_chars = [
+        '\u0095',  # Bullet (Windows-1252)
+        '\u0096',  # En dash (Windows-1252)
+        '\u0097',  # Em dash (Windows-1252)
+        '\u2022',  # Bullet
+        '\u2023',  # Triangular bullet
+        '\u25E6',  # White bullet
+        '\u2043',  # Hyphen bullet
+        '\u2219',  # Bullet operator
+        '\u25D8',  # Inverse bullet
+        '\u25CB',  # White circle
+        '\u25CF',  # Black circle
+        '\u25AA',  # Black small square
+        '\u25AB',  # White small square
+        '\u25A0',  # Black square
+        '\u25A1',  # White square
+        '\u2212',  # Minus sign
+        '\u002D',  # Hyphen-minus
+        '\u2014',  # Em dash
+        '\u2013',  # En dash
+        '\u2010',  # Hyphen
+        '\u2026',  # Ellipsis
+        '•', '–', '-', '*', '>'  # Common bullet characters
+    ]
+    
+    # Check if text contains line breaks
+    if '\n' in text:
+        paragraphs = text.split('\n')
+    else:
+        paragraphs = [text]
+    
+    current_list_items = []
+    in_list = False
+    
+    for para in paragraphs:
+        para = para.strip()
+        if not para:
+            continue
+        
+        # Check if this paragraph is a bullet point
+        is_bullet = any(para.startswith(bullet) for bullet in bullet_chars)
+        
+        if is_bullet:
+            # If we weren't in a list before, start one now
+            if not in_list:
+                in_list = True
+            
+            # Remove the bullet character and add to list items
+            for bullet in bullet_chars:
+                if para.startswith(bullet):
+                    # Keep the item text as is after removing the bullet
+                    item_text = para[len(bullet):].strip()
+                    current_list_items.append(ListItem(Paragraph(item_text, style)))
+                    break
         else:
-            # For other elements or text nodes
-            if hasattr(child, 'string') and child.string:
-                result += child.string
-            elif isinstance(child, str):
-                result += child
-            else:
-                result += process_formatted_text(child)
+            # If we were in a list, finalize it before continuing
+            if in_list and current_list_items:
+                elementos.append(ListFlowable(
+                    current_list_items,
+                    bulletType='bullet',
+                    start='•',
+                    bulletFontName='Helvetica',
+                    bulletFontSize=10,
+                    leftIndent=20,
+                    bulletOffsetY=2
+                ))
+                current_list_items = []
+                in_list = False
+            
+            # Add regular paragraph preserving all Unicode characters
+            elementos.append(Paragraph(para, style))
     
-    return result
+    # Don't forget to add any remaining list items
+    if in_list and current_list_items:
+        elementos.append(ListFlowable(
+            current_list_items,
+            bulletType='bullet',
+            start='•',
+            bulletFontName='Helvetica',
+            bulletFontSize=10,
+            leftIndent=20,
+            bulletOffsetY=2
+        ))
+    
+    return elementos
 
 def process_html_content(content, doc_width, normal_style):
     # Handle empty content
@@ -618,21 +807,9 @@ def process_html_content(content, doc_width, normal_style):
         # Replace _text_ with <i>text</i> but only if _ is not part of a word
         content = re.sub(r'(?<!\w)_([^_]+)_(?!\w)', r'<i>\1</i>', content)
         
-        # 2. Italicize technical terms commonly found in language education
+        # Italicize technical terms commonly found in language education
         # Find "TO + verb" patterns (common in language teaching)
         content = re.sub(r'\bTO\s+(BE|DO|HAVE)\b', r'<i>TO \1</i>', content)
-        
-        # 3. Find domain-specific terms that should be italicized
-        technical_terms = [
-            'carry out', 'measure out', 'shall', 'must', 'should', 
-            'will', 'could', 'may', 'might', 'ing', 'maxima verosimilitud',
-            'maxima verosimilidad'
-        ]
-        
-        for term in technical_terms:
-            # Make sure we're not matching within other words
-            term_pattern = r'\b' + re.escape(term) + r'\b'
-            content = re.sub(term_pattern, f'<i>{term}</i>', content, flags=re.IGNORECASE)
         
         # Check if we have bullet points (• or – are common bullet characters)
         bullet_chars = ['\u0095', '\u0096', '•', '–']
@@ -693,14 +870,14 @@ def process_html_content(content, doc_width, normal_style):
     try:
         # ...existing processing code...
         elements = []
-        
+
         # Process tables first
         tables = soup.find_all('table')
         if tables:
             # ...existing table processing code...
             for table in tables:
                 rows = []
-                
+
                 headers = table.find('thead')
                 if headers:
                     header_row = []
@@ -708,30 +885,30 @@ def process_html_content(content, doc_width, normal_style):
                         header_row.append(Paragraph(th.get_text().strip(), normal_style))
                     if header_row:
                         rows.append(header_row)
-                
+
                 for tr in table.find_all('tr'):
                     if tr.parent.name == 'thead':
                         continue
-                            
+
                     row = []
                     for td in tr.find_all(['td', 'th']):
                         # Use process_formatted_text to handle rich text
-                        cell_text = process_formatted_text(td)
+                        cell_text = td.get_text()
                         row.append(Paragraph(cell_text, normal_style))
-                    
+
                     if row:
                         rows.append(row)
-                
+
                 if rows:
                     col_count = max([len(row) for row in rows])
                     col_width = doc_width / col_count
-                    
+
                     tbl = Table(rows, colWidths=[col_width] * col_count)
                     tbl.setStyle(table_style)
                     elements.append(tbl)
                     elements.append(Spacer(1, 0.1*inch))
             return elements
-        
+
         # Process lists (both HTML lists and unicode bullet lists)
         ul_elements = soup.find_all(['ul', 'ol'])
         if ul_elements:
@@ -739,13 +916,13 @@ def process_html_content(content, doc_width, normal_style):
                 list_items = []
                 for li in ul.find_all('li'):
                     # Properly handle rich text formatting in list items
-                    text = process_formatted_text(li)
+                    text = li.get_text()
                     list_items.append(ListItem(Paragraph(text, normal_style)))
-                
+
                 # Check if it's an ordered list
                 is_ordered = ul.name == 'ol'
                 bullet_type = 'decimal' if is_ordered else 'bullet'
-                
+
                 list_flowable = ListFlowable(
                     list_items,
                     bulletType=bullet_type,
@@ -754,64 +931,64 @@ def process_html_content(content, doc_width, normal_style):
                     spaceAfter=6
                 )
                 elements.append(list_flowable)
-            
+
             # After processing lists, look for paragraphs outside lists
             for p in soup.find_all('p'):
                 if not any(p.find_parents(['ul', 'ol', 'li'])):
-                    text = process_formatted_text(p)
+                    text = p.get_text()
                     if text.strip():
                         elements.append(Paragraph(text, normal_style))
-                        
+
             # If we have elements, return them; otherwise continue with other checks
             if elements:
                 return elements
-        
+
         # Process paragraphs with formatting
         p_elements = soup.find_all('p')
         if p_elements:
             for p in p_elements:
-                text = process_formatted_text(p)
+                text = p.get_text()
                 if text.strip():
                     elements.append(Paragraph(text, normal_style))
-            
+
             # If we have paragraph elements, return them
             if elements:
                 return elements
-        
+
         # If no specific elements found, check for unprocessed text
         # We need to handle both the bullet points and preserve formatting
         text = soup.get_text()
-        
+
         # Check for bullet points in remaining text
         bullet_chars = ['\u0095', '\u0096', '•', '–']  # Include all bullet types
         has_remaining_bullets = any(bullet in text for bullet in bullet_chars)
-        
+
         if has_remaining_bullets:
             # ...existing bullet point processing code...
             current_paragraphs = []
             list_items = []
             in_list = False
-            
+
             # Split by lines and process each
             for line in text.split('\n'):
                 line = line.strip()
                 if not line:
                     continue
-                    
+
                 # Check if this line is a bullet point
                 is_bullet = any(line.startswith(bullet) for bullet in bullet_chars)
-                
+
                 if is_bullet:
                     # If we have text waiting to be output, do it now
                     if current_paragraphs and not in_list:
                         for para in current_paragraphs:
                             elements.append(Paragraph(para, normal_style))
                         current_paragraphs = []
-                    
+
                     # Start a new list if needed
                     if not in_list:
                         in_list = True
-                    
+
                     # Clean up the bullet point and add as list item
                     for bullet in bullet_chars:
                         if line.startswith(bullet):
@@ -833,10 +1010,10 @@ def process_html_content(content, doc_width, normal_style):
                             elements.append(list_flowable)
                             list_items = []
                         in_list = False
-                    
+
                     # Add as regular paragraph
                     current_paragraphs.append(line)
-            
+
             # Process any remaining content
             if in_list and list_items:
                 list_flowable = ListFlowable(
@@ -847,16 +1024,16 @@ def process_html_content(content, doc_width, normal_style):
                     spaceAfter=6
                 )
                 elements.append(list_flowable)
-            
+
             if current_paragraphs:
                 for para in current_paragraphs:
                     elements.append(Paragraph(para, normal_style))
-            
+
             return elements
-        
+
         # If we got here, process the whole text by paragraphs
-        text = process_formatted_text(soup)
-        
+        text = soup.get_text()
+
         # Handle non-HTML formatting: convert simple newlines to paragraphs
         paragraphs = []
         if '\n' in text:
@@ -865,11 +1042,11 @@ def process_html_content(content, doc_width, normal_style):
                     paragraphs.append(para.strip())
         else:
             paragraphs = [text]
-            
+
         for para in paragraphs:
             if para.strip():
                 elements.append(Paragraph(para.strip(), normal_style))
-                
+
         return elements
     except Exception as e:
         print(f"Error procesando HTML: {str(e)}")
@@ -877,11 +1054,11 @@ def process_html_content(content, doc_width, normal_style):
 
 def programa_header_footer(canvas, doc, programa):
     canvas.saveState()
-    
+
     # Get the path to the logo
     current_dir = os.path.dirname(os.path.abspath(__file__))
     logo_path = os.path.join(current_dir, 'static', 'img', 'logounco.webp')
-    
+
     # Draw the logo if it exists
     if (os.path.exists(logo_path)):
         logo_width = 35*mm
@@ -889,57 +1066,57 @@ def programa_header_footer(canvas, doc, programa):
         canvas.drawImage(logo_path, doc.leftMargin, doc.pagesize[1] - 38*mm, 
                         width=logo_width, height=logo_height, preserveAspectRatio=True,
                         anchor='n')
-    
+
     # Add centered header text aligned with logo's top margin
     # Using grey color with normal line spacing
     canvas.setFillColorRGB(0.5, 0.5, 0.5)  # Medium grey color for watermark effect
-    
+
     canvas.setFont('Helvetica-Bold', 9)
     header_x = doc.pagesize[0] / 2  # Center of page
     header_y = doc.pagesize[1] - 10*mm  # Higher position (matching logo's top margin)
     canvas.drawCentredString(header_x, header_y, "Secretaría Académica")
-    
+
     canvas.setFont('Helvetica', 9)
     canvas.drawCentredString(header_x, header_y - 12, "Centro Regional Universitario Bariloche")
     canvas.drawCentredString(header_x, header_y - 24, "Universidad Nacional del Comahue")
-    
+
     # Add subtle line divider below header text
     canvas.setLineWidth(0.5)
     canvas.setStrokeColorRGB(0.7, 0.7, 0.7)  # Light grey line
     line_y = header_y - 32  # Position line below the header text
     canvas.line(doc.leftMargin + 50, line_y, doc.pagesize[0] - doc.leftMargin - 50, line_y)
-    
+
     # Reset fill color to black for footer content
     canvas.setFillColorRGB(0, 0, 0)
     canvas.setStrokeColorRGB(0, 0, 0)  # Reset stroke color too
-    
+
     canvas.setFont('Helvetica', 6)  # Smaller font size for signatures
     # Calculate positions for signatures at the bottom
     firma_x = 2*mm  # Left alignment
-    
+
     # First determine how many firma lines we'll have
     lines_count = 0
     if programa.get('firma_doc', ''): lines_count += 1
     if programa.get('firma_depto', ''): lines_count += 1
     if programa.get('firma_sac', ''): lines_count += 1
-    
+
     # Calculate initial y position to fit all lines
     footer_y = 10 + (lines_count * 4)  # 2 points buffer from bottom + 4pt spacing per line
-    
+
     firma_doc = programa.get('firma_doc', '')
     if firma_doc:
         canvas.drawString(firma_x, footer_y, f"{firma_doc}")
         footer_y -= 8  # Minimal spacing between lines
-    
+
     firma_depto = programa.get('firma_depto', '')
     if firma_depto:
         canvas.drawString(firma_x, footer_y, f"{firma_depto}")
         footer_y -= 8  # Minimal spacing between lines
-    
+
     firma_sac = programa.get('firma_sac', '')
     if firma_sac:
         canvas.drawString(firma_x, footer_y, f"{firma_sac}")
-    
+
     canvas.restoreState()
 
 def generate_program_pdf(programa):
@@ -954,7 +1131,7 @@ def generate_program_pdf(programa):
         alignment=1,
         keepWithNext=True
     )
-    
+
     normal_style = ParagraphStyle(
         'CustomNormal',
         parent=styles['Normal'],
@@ -965,7 +1142,7 @@ def generate_program_pdf(programa):
         allowWidows=0,   # Prevent widowed lines
         allowOrphans=0   # Prevent orphaned lines
     )
-    
+
     field_style = ParagraphStyle(
         'FieldStyle',
         parent=styles['Normal'],
@@ -975,7 +1152,7 @@ def generate_program_pdf(programa):
         leftIndent=0,
         fontName='Helvetica-Bold'
     )
-    
+
     pdf_buffer = BytesIO()
     doc = SimpleDocTemplate(
         pdf_buffer,
@@ -989,25 +1166,25 @@ def generate_program_pdf(programa):
         splitLongWords=1,    # Allow long words to split
         pageCompression=1    # Compress the PDF
     )
-    
+
     # Generate program elements using the helper function
     programa_elements = generate_program_content(programa, title_style, field_style, normal_style)
-    
+
     # Create header/footer function for this program
     def make_header_footer_function(prog):
         return lambda canvas, doc: programa_header_footer(canvas, doc, prog)
-    
+
     header_footer_fn = make_header_footer_function(programa)
     doc.build(programa_elements, onFirstPage=header_footer_fn, onLaterPages=header_footer_fn)
-    
+
     pdf_buffer.seek(0)
     return pdf_buffer
 
 def generate_program_content(programa, title_style, field_style, normal_style):
     """Helper function to generate the content elements for a program PDF"""
     programa_elements = []
-    
-    # Create a justified style for content sections
+
+    # Create justified style for content
     justified_style = ParagraphStyle(
         'JustifiedContent',
         parent=normal_style,
@@ -1015,24 +1192,22 @@ def generate_program_content(programa, title_style, field_style, normal_style):
         spaceAfter=6,
         leading=14
     )
-    
+
+    # Initial spacing
     programa_elements.append(Spacer(1, 0.35*inch))
-    
-    # Header sections (unchanged)
-    programa_elements.append(Spacer(1, 0.35*inch))  # Reduced from 0.45 for initial spacing
-    
-    # Replace PROGRAMA title with AÑO ACADÉMICO: ano_academico
+
+    # Basic program metadata
     ano_academico = programa.get('ano_academico', '')
     programa_elements.append(Paragraph(f"AÑO ACADÉMICO: {ano_academico}", title_style))
-    programa_elements.append(Spacer(1, 0.03*inch))  # Reduced from 0.05
-    
+    programa_elements.append(Spacer(1, 0.03*inch))
+
     # Reordered fields according to the requested format
     # Add department first if it exists
     depto = programa.get('depto', '')
     if depto and depto.strip():
         programa_elements.append(Paragraph(f"DEPARTAMENTO: {depto}", field_style))
         programa_elements.append(Spacer(1, 0.03*inch))  # Reduced spacing after basic info
-    
+
     # Program with code
     nombre_materia = programa.get('nombre_materia', '')
     cod_guarani = programa.get('cod_guarani', '')
@@ -1043,13 +1218,13 @@ def generate_program_content(programa, title_style, field_style, normal_style):
         if cod_guarani and cod_guarani.strip():
             programa_elements.append(Paragraph(f"(Cod. Guaraní: {cod_guarani})", normal_style))
         programa_elements.append(Spacer(1, 0.03*inch))  # Reduced spacing after basic info
-    
+
     # Optativa - only show if it's "Si" or "Sí"
     optativa = programa.get('optativa', '')
     if optativa and optativa.strip().lower() in ["si", "sí"]:
         programa_elements.append(Paragraph(f"OPTATIVA: {optativa}", field_style))
         programa_elements.append(Spacer(1, 0.03*inch))  # Reduced spacing after basic info
-    
+
     # Career info
     carrera = programa.get('nombre_carrera', '')
     cod_carrera = programa.get('cod_carrera', '')
@@ -1060,32 +1235,32 @@ def generate_program_content(programa, title_style, field_style, normal_style):
             career_text += f" - ({cod_carrera})"
         programa_elements.append(Paragraph(career_text, normal_style))
         programa_elements.append(Spacer(1, 0.08*inch))  # Reduced from 0.15 after correlativas
-    
+
     # Process fields that should only be shown if they have non-empty values
     fields = [
         ('ÁREA', 'area'),
         ('ORIENTACIÓN', 'orientacion'),
         ('PLAN DE ESTUDIOS ORD.', 'plan_ordenanzas')
     ]
-    
+
     for label, field in fields:
         value = programa.get(field, '')
         if value and value.strip():
             programa_elements.append(Paragraph(f"{label}: {value}", field_style))
             programa_elements.append(Spacer(1, 0.03*inch))  # Reduced spacing after basic info
-    
+
     # Handle TRAYECTO (PEF) separately - only show if not "N/C"
     trayecto = programa.get('trayecto', '')
     if trayecto and trayecto.strip() and trayecto.strip().upper() != "N/C":
         programa_elements.append(Paragraph(f"TRAYECTO (PEF): {trayecto}", field_style))
         programa_elements.append(Spacer(1, 0.03*inch))  # Reduced spacing after basic info
-    
+
     # Process numerical fields - only show if they have non-zero values
     fields = [
         ('CARGA HORARIA SEMANAL SEGÚN PLAN DE ESTUDIOS', 'horas_semanales'),
         ('CARGA HORARIA TOTAL', 'horas_totales')
     ]
-    
+
     for label, field in fields:
         value = programa.get(field, '')
         try:
@@ -1099,21 +1274,21 @@ def generate_program_content(programa, title_style, field_style, normal_style):
             if value and str(value).strip():
                 programa_elements.append(Paragraph(f"{label}: {value}", field_style))
                 programa_elements.append(Spacer(1, 0.03*inch))  # Reduced spacing after basic info
-    
+
     # Add RÉGIMEN if it exists
     regimen = programa.get('periodo_dictado', '')
     if regimen and regimen.strip():
         programa_elements.append(Paragraph(f"RÉGIMEN: {regimen}", field_style))
         programa_elements.append(Spacer(1, 0.08*inch))  # Reduced from 0.15 after correlativas
-    
+
     # Add equipo de cátedra
     programa_elements.append(Paragraph(f"EQUIPO DE CÁTEDRA:", field_style))
-    
+
     # Only add responsible person info if we have at least one of the fields
     apellido_resp = programa.get('apellido_resp', '').strip()
     nombre_resp = programa.get('nombre_resp', '').strip()
     cargo_resp = programa.get('cargo_resp', '').strip()
-    
+
     if any([apellido_resp, nombre_resp, cargo_resp]):
         equipo_parts = []
         if apellido_resp or nombre_resp:
@@ -1123,16 +1298,16 @@ def generate_program_content(programa, title_style, field_style, normal_style):
             equipo_parts.append(cargo_resp)
         equipo = " - ".join(equipo_parts)
         programa_elements.append(Paragraph(equipo, normal_style))
-    
+
     # Add additional team members if they exist
     if programa.get('equipo_catedra'):
         programa_elements.append(Paragraph(programa.get('equipo_catedra', ''), normal_style))
     programa_elements.append(Spacer(1, 0.08*inch))  # Reduced from 0.15 after correlativas
-    
+
     # Add correlativas section
     programa_elements.append(Paragraph("ASIGNATURAS CORRELATIVAS (según plan de estudios):", field_style))
     programa_elements.append(Spacer(1, 0.03*inch))  # Reduced from 0.05
-    
+
     # Para cursar section
     programa_elements.append(Paragraph("- PARA CURSAR:", normal_style))
     correlativas_cursar = programa.get('correlativas_para_cursar', '').split('\n')
@@ -1143,9 +1318,9 @@ def generate_program_content(programa, title_style, field_style, normal_style):
             has_cursar = True
     if not has_cursar:
         programa_elements.append(Paragraph("No posee correlativas para cursar", normal_style))
-    
+
     programa_elements.append(Spacer(1, 0.03*inch))  # Reduced from 0.05
-    
+
     # Para rendir section
     programa_elements.append(Paragraph("- PARA RENDIR EXAMEN FINAL:", normal_style))
     correlativas_aprobar = programa.get('correlativas_para_aprobar', '').split('\n')
@@ -1156,9 +1331,9 @@ def generate_program_content(programa, title_style, field_style, normal_style):
             has_aprobar = True
     if not has_aprobar:
         programa_elements.append(Paragraph("No posee correlativas para rendir", normal_style))
-    
+
     programa_elements.append(Spacer(1, 0.08*inch))  # Reduced from 0.15 after correlativas
-    
+
     # Process main content sections with justified text
     sections = [
         ('FUNDAMENTACIÓN', 'fundamentacion'),
@@ -1169,19 +1344,19 @@ def generate_program_content(programa, title_style, field_style, normal_style):
         ('PROPUESTA METODOLÓGICA MODALIDAD PRESENCIAL', 'propuesta_metodologica'),
         ('EVALUACIÓN Y CONDICIONES DE ACREDITACIÓN', 'evaluacion_acreditacion'),
     ]
-    
+
     doc_width = A4[0] - 2*25*mm
     for label, field in sections:
         content = programa.get(field)
         if content and content.strip():
             programa_elements.append(Paragraph(f"{label}:", field_style))
-            html_elements = process_html_content(content, doc_width, justified_style)
-            programa_elements.extend(html_elements)
+            elementos = process_content(content, doc_width, justified_style, is_html=False)
+            programa_elements.extend(elementos)
             programa_elements.append(Spacer(1, 0.1*inch))
-    
-    # Add distribution horaria section
+
+    # Distribution horaria (HTML content)
     programa_elements.append(Paragraph("DISTRIBUCIÓN HORARIA:", field_style))
-    
+
     # Hours display (use justified style for descriptive text)
     for label, field in [
         ('Horas teóricas', 'horas_teoricas'),
@@ -1189,29 +1364,23 @@ def generate_program_content(programa, title_style, field_style, normal_style):
         ('Horas teórico-prácticas', 'horas_teoricopracticas')
     ]:
         value = programa.get(field, '')
-        try:
-            num_value = float(str(value).replace(',', '.'))
-            if num_value > 0:
-                extra_text = " (solo para LENB y LBIB)" if field == 'horas_teoricopracticas' else ""
-                programa_elements.append(Paragraph(f"{label}: {value}{extra_text}", normal_style))
-        except (ValueError, TypeError):
-            if value and str(value).strip():
-                extra_text = " (solo para LENB y LBIB)" if field == 'horas_teoricopracticas' else ""
-                programa_elements.append(Paragraph(f"{label}: {value}{extra_text}", normal_style))
-    
-    # Add additional distribution info with justified text
+        if value and str(value).strip():
+            extra_text = " (solo para LENB y LBIB)" if field == 'horas_teoricopracticas' else ""
+            programa_elements.append(Paragraph(f"{label}: {value}{extra_text}", normal_style))
+
+    # Process HTML content for distribución horaria
     if programa.get('distribucion_horaria'):
-        html_elements = process_html_content(programa.get('distribucion_horaria', ''), doc_width, justified_style)
-        programa_elements.extend(html_elements)
+        elementos = process_content(programa.get('distribucion_horaria'), doc_width, justified_style, is_html=True)
+        programa_elements.extend(elementos)
     programa_elements.append(Spacer(1, 0.1*inch))
-    
-    # Add cronograma with justified text if it exists
+
+    # Process HTML content for cronograma if it exists
     cronograma = programa.get('cronograma_tentativo', '')
     if cronograma and cronograma.strip():
         programa_elements.append(Paragraph("CRONOGRAMA TENTATIVO:", field_style))
-        html_elements = process_html_content(cronograma, doc_width, justified_style)
-        programa_elements.extend(html_elements)
-    
+        elementos = process_content(cronograma, doc_width, justified_style, is_html=True)
+        programa_elements.extend(elementos)
+
     return programa_elements
 
 # Search Options API Routes
@@ -1220,21 +1389,21 @@ def search_options():
     """Get available options for search form dropdowns"""
     careers = set()
     academic_years = set()
-    
+
     # Get values from old programs
     for program in OLD_PROGRAMS:
         if program.get('cod_carrera'):
             careers.add(program['cod_carrera'])
         if program.get('ano_academico'):
             academic_years.add(str(program.get('ano_academico')))
-    
+
     # Get values from API
     api_url = app.config.get('API_URL')
     if api_url:
         try:
             auth = requests.auth.HTTPDigestAuth('usuario1', 'pdf')
             response = requests.get(f"{api_url}/rest/programas", auth=auth, timeout=5)
-            
+
             if response.status_code == 200:
                 api_programs = response.json()
                 for program in api_programs:
@@ -1244,7 +1413,7 @@ def search_options():
                         academic_years.add(str(program.get('ano_academico')))
         except Exception as e:
             print(f"API search error: {str(e)}")
-    
+
     # Convert career codes to full names and create option objects
     career_options = []
     for code in sorted(careers):
@@ -1253,7 +1422,7 @@ def search_options():
             'code': code,
             'name': name
         })
-    
+
     return jsonify({
         'careers': career_options,
         'academic_years': sorted(list(academic_years), reverse=True)
