@@ -494,9 +494,15 @@ def download_plan(plan_version_siu):
         # Handle spaces and special characters in URL
         url = url.replace(' ', '%20')
         
+        # Add base URL path if URL is relative
+        base_url = get_base_url_path()
+        if url.startswith('/'):
+            url = f"https://archivo.crub.uncoma.edu.ar{url}"
+            
         response = requests.get(url, stream=True, verify=False)  # Added verify=False for self-signed certs
         
         if response.status_code != 200:
+            print(f"Error downloading plan - URL: {url}, Status: {response.status_code}")
             return f"Error descargando el plan: HTTP {response.status_code}", 500
             
         buffer = BytesIO(response.content)
