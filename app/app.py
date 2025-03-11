@@ -69,7 +69,9 @@ def load_carreras():
     try:
         json_path = os.path.join(app.static_folder, 'carreras.json')
         with open(json_path, 'r', encoding='utf-8') as file:
-            return json.load(file)
+            carreras = json.load(file)
+            # Custom sort: engineering programs (starting with 'I') go last
+            return sorted(carreras, key=lambda x: (x['carrera'].startswith('I'), x['carrera']))
     except Exception as e:
         print(f"Error loading careers: {str(e)}")
         return []
@@ -372,6 +374,9 @@ def search_planes():
         
         if matches and plan.get('url_planEstudio'):
             results.append(plan)
+    
+    # Sort results so vigente='si' appears first
+    results.sort(key=lambda x: (x.get('vigente', '') != 'si', x.get('carrera', ''), x.get('anio_entrada_vigencia', '')))
     
     return jsonify(results)
 

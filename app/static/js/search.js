@@ -169,8 +169,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     planCarreraSelect.appendChild(option);
                 });
                 
+                // Sort vigencia states so "si" appears first
+                const sortedStates = data.vigencia_states.sort((a, b) => {
+                    if (a === 'si') return -1;
+                    if (b === 'si') return 1;
+                    return 0;
+                });
+                
                 // Populate vigencia options
-                data.vigencia_states.forEach(state => {
+                sortedStates.forEach(state => {
                     const option = document.createElement('option');
                     option.value = state;
                     option.textContent = state === 'si' ? 'Vigente' : 'No vigente';
