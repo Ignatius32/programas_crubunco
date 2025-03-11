@@ -9,7 +9,7 @@ import tempfile
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter, A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, ListItem, ListFlowable
 from reportlab.lib import colors
 from reportlab.lib.units import inch, mm
 from bs4 import BeautifulSoup
@@ -418,9 +418,12 @@ def download_programa(program_id):
                     response = requests.get(url, stream=True)
                     if response.status_code == 200:
                         buffer = BytesIO(response.content)
+                        # Add codigo carrera to the filename if it exists
+                        cod_carrera = program.get('cod_carrera', '')
+                        codigo_str = f"_{cod_carrera}" if cod_carrera else ""
                         return send_file(
                             buffer,
-                            download_name=f"{program.get('nombre_materia', 'programa')}_{program.get('ano_academico', '')}.pdf",
+                            download_name=f"{program.get('nombre_materia', 'programa')}{codigo_str}_{program.get('ano_academico', '')}.pdf",
                             as_attachment=True,
                             mimetype='application/pdf'
                         )
@@ -456,9 +459,13 @@ def download_programa(program_id):
         # Generate PDF using existing function
         pdf_buffer = generate_program_pdf(program)
         
+        # Add codigo carrera to the filename if it exists
+        cod_carrera = program.get('cod_carrera', '')
+        codigo_str = f"_{cod_carrera}" if cod_carrera else ""
+        
         return send_file(
             pdf_buffer,
-            download_name=f"{program.get('nombre_materia', 'programa')}_{program.get('ano_academico', '')}.pdf",
+            download_name=f"{program.get('nombre_materia', 'programa')}{codigo_str}_{program.get('ano_academico', '')}.pdf",
             as_attachment=True,
             mimetype='application/pdf'
         )
@@ -552,16 +559,126 @@ def process_formatted_text(element):
     return result
 
 def process_html_content(content, doc_width, normal_style):
-    if not content or '<' not in content:
-        return [Paragraph(content, normal_style)]
+    # Handle empty content
+    if not content:
+        return []
+    
+    # First, replace problematic Unicode characters with their HTML equivalents
+    # Common Unicode quotation marks and other special characters
+    unicode_replacements = {
+        '\u0091': "'",  # Left single quotation mark
+        '\u0092': "'",  # Right single quotation mark
+        '\u0093': '"',  # Left double quotation mark
+        '\u0094': '"',  # Right double quotation mark
+        '\u0095': '•',  # Bullet
+        '\u0096': '–',  # En dash
+        '\u0097': '—',  # Em dash
+        '\u00AB': '«',  # Left-pointing double angle quotation mark
+        '\u00BB': '»',  # Right-pointing double angle quotation mark
+        '\u201C': '"',  # Left double quotation mark
+        '\u201D': '"',  # Right double quotation mark
+        '\u2018': ''',  # Left single quotation mark
+        '\u2019': ''',  # Right single quotation mark
+    }
+    
+    # Replace Unicode characters
+    for unicode_char, replacement in unicode_replacements.items():
+        if unicode_char in content:
+            content = content.replace(unicode_char, replacement)
+    
+    # Check if we need to convert raw text formatting to HTML
+    if '<' not in content:
+        # Import re for regex operations
+        import re
+        
+        # Apply common formatting patterns for academic/technical content
+        
+        # 1. Convert markdown-style italics to HTML
+        # Replace *text* with <i>text</i> but only if * is not part of a word
+        content = re.sub(r'(?<!\w)\*([^\*]+)\*(?!\w)', r'<i>\1</i>', content)
+        # Replace _text_ with <i>text</i> but only if _ is not part of a word
+        content = re.sub(r'(?<!\w)_([^_]+)_(?!\w)', r'<i>\1</i>', content)
+        
+        # 2. Italicize technical terms commonly found in language education
+        # Find "TO + verb" patterns (common in language teaching)
+        content = re.sub(r'\bTO\s+(BE|DO|HAVE)\b', r'<i>TO \1</i>', content)
+        
+        # 3. Find domain-specific terms that should be italicized
+        technical_terms = [
+            'carry out', 'measure out', 'shall', 'must', 'should', 
+            'will', 'could', 'may', 'might', 'ing', 'maxima verosimilitud',
+            'maxima verosimilidad'
+        ]
+        
+        for term in technical_terms:
+            # Make sure we're not matching within other words
+            term_pattern = r'\b' + re.escape(term) + r'\b'
+            content = re.sub(term_pattern, f'<i>{term}</i>', content, flags=re.IGNORECASE)
+        
+        # Check if we have bullet points (• or – are common bullet characters)
+        bullet_chars = ['\u0095', '\u0096', '•', '–']
+        has_bullets = any(bullet in content for bullet in bullet_chars)
+        
+        if has_bullets:
+            # Convert bullet points to HTML list
+            # First split by newlines to preserve paragraph structure
+            paragraphs = content.split('\n')
+            html_parts = []
+            
+            in_list = False
+            for para in paragraphs:
+                para_strip = para.strip()
+                is_bullet_point = any(para_strip.startswith(bullet) for bullet in bullet_chars)
+                
+                if is_bullet_point:
+                    # Start a new list if not already in one
+                    if not in_list:
+                        html_parts.append('<ul>')
+                        in_list = True
+                    
+                    # Clean up the bullet point and add as list item
+                    item = para_strip
+                    for bullet in bullet_chars:
+                        if item.startswith(bullet):
+                            item = item.replace(bullet, '', 1).strip()
+                            break
+                    html_parts.append(f'<li>{item}</li>')
+                else:
+                    # Close the list if we were in one
+                    if in_list:
+                        html_parts.append('</ul>')
+                        in_list = False
+                    
+                    # Add as regular paragraph if not empty
+                    if para.strip():
+                        html_parts.append(f'<p>{para.strip()}</p>')
+            
+            # Close any open list
+            if in_list:
+                html_parts.append('</ul>')
+            
+            html_content = ''.join(html_parts)
+            soup = BeautifulSoup(html_content, 'html.parser')
+        else:
+            # If it's plain text without bullets, just create paragraphs from newlines
+            paragraphs = content.split('\n')
+            elements = []
+            for para in paragraphs:
+                if para.strip():
+                    elements.append(Paragraph(para.strip(), normal_style))
+            return elements
+    else:
+        # Content already has HTML tags
+        soup = BeautifulSoup(content, 'html.parser')
             
     try:
-        soup = BeautifulSoup(content, 'html.parser')
+        # ...existing processing code...
         elements = []
         
         # Process tables first
         tables = soup.find_all('table')
         if tables:
+            # ...existing table processing code...
             for table in tables:
                 rows = []
                 
@@ -579,7 +696,8 @@ def process_html_content(content, doc_width, normal_style):
                             
                     row = []
                     for td in tr.find_all(['td', 'th']):
-                        cell_text = td.get_text().strip()
+                        # Use process_formatted_text to handle rich text
+                        cell_text = process_formatted_text(td)
                         row.append(Paragraph(cell_text, normal_style))
                     
                     if row:
@@ -595,12 +713,13 @@ def process_html_content(content, doc_width, normal_style):
                     elements.append(Spacer(1, 0.1*inch))
             return elements
         
-        # Process lists
+        # Process lists (both HTML lists and unicode bullet lists)
         ul_elements = soup.find_all(['ul', 'ol'])
         if ul_elements:
             for ul in ul_elements:
                 list_items = []
                 for li in ul.find_all('li'):
+                    # Properly handle rich text formatting in list items
                     text = process_formatted_text(li)
                     list_items.append(ListItem(Paragraph(text, normal_style)))
                 
@@ -616,7 +735,17 @@ def process_html_content(content, doc_width, normal_style):
                     spaceAfter=6
                 )
                 elements.append(list_flowable)
-            return elements
+            
+            # After processing lists, look for paragraphs outside lists
+            for p in soup.find_all('p'):
+                if not any(p.find_parents(['ul', 'ol', 'li'])):
+                    text = process_formatted_text(p)
+                    if text.strip():
+                        elements.append(Paragraph(text, normal_style))
+                        
+            # If we have elements, return them; otherwise continue with other checks
+            if elements:
+                return elements
         
         # Process paragraphs with formatting
         p_elements = soup.find_all('p')
@@ -625,15 +754,103 @@ def process_html_content(content, doc_width, normal_style):
                 text = process_formatted_text(p)
                 if text.strip():
                     elements.append(Paragraph(text, normal_style))
-        else:
-            # If no specific paragraph tags, process the whole text
-            text = process_formatted_text(soup)
-            # Split by newlines for multiple paragraphs
-            paragraphs = [p for p in text.split('\n') if p.strip()]
-            for para in paragraphs:
-                if para.strip():
-                    elements.append(Paragraph(para.strip(), normal_style))
+            
+            # If we have paragraph elements, return them
+            if elements:
+                return elements
         
+        # If no specific elements found, check for unprocessed text
+        # We need to handle both the bullet points and preserve formatting
+        text = soup.get_text()
+        
+        # Check for bullet points in remaining text
+        bullet_chars = ['\u0095', '\u0096', '•', '–']  # Include all bullet types
+        has_remaining_bullets = any(bullet in text for bullet in bullet_chars)
+        
+        if has_remaining_bullets:
+            # ...existing bullet point processing code...
+            current_paragraphs = []
+            list_items = []
+            in_list = False
+            
+            # Split by lines and process each
+            for line in text.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                    
+                # Check if this line is a bullet point
+                is_bullet = any(line.startswith(bullet) for bullet in bullet_chars)
+                
+                if is_bullet:
+                    # If we have text waiting to be output, do it now
+                    if current_paragraphs and not in_list:
+                        for para in current_paragraphs:
+                            elements.append(Paragraph(para, normal_style))
+                        current_paragraphs = []
+                    
+                    # Start a new list if needed
+                    if not in_list:
+                        in_list = True
+                    
+                    # Clean up the bullet point and add as list item
+                    for bullet in bullet_chars:
+                        if line.startswith(bullet):
+                            item = line.replace(bullet, '', 1).strip()
+                            list_items.append(ListItem(Paragraph(item, normal_style)))
+                            break
+                else:
+                    # Not a bullet point
+                    if in_list:
+                        # End the current list
+                        if list_items:
+                            list_flowable = ListFlowable(
+                                list_items,
+                                bulletType='bullet',
+                                leftIndent=20,
+                                spaceBefore=6,
+                                spaceAfter=6
+                            )
+                            elements.append(list_flowable)
+                            list_items = []
+                        in_list = False
+                    
+                    # Add as regular paragraph
+                    current_paragraphs.append(line)
+            
+            # Process any remaining content
+            if in_list and list_items:
+                list_flowable = ListFlowable(
+                    list_items,
+                    bulletType='bullet',
+                    leftIndent=20,
+                    spaceBefore=6,
+                    spaceAfter=6
+                )
+                elements.append(list_flowable)
+            
+            if current_paragraphs:
+                for para in current_paragraphs:
+                    elements.append(Paragraph(para, normal_style))
+            
+            return elements
+        
+        # If we got here, process the whole text by paragraphs
+        text = process_formatted_text(soup)
+        
+        # Handle non-HTML formatting: convert simple newlines to paragraphs
+        paragraphs = []
+        if '\n' in text:
+            for para in text.split('\n'):
+                if para.strip():
+                    paragraphs.append(para.strip())
+        else:
+            paragraphs = [text]
+            
+        for para in paragraphs:
+            if para.strip():
+                elements.append(Paragraph(para.strip(), normal_style))
+                
         return elements
     except Exception as e:
         print(f"Error procesando HTML: {str(e)}")
@@ -647,7 +864,7 @@ def programa_header_footer(canvas, doc, programa):
     logo_path = os.path.join(current_dir, 'static', 'img', 'logounco.webp')
     
     # Draw the logo if it exists
-    if os.path.exists(logo_path):
+    if (os.path.exists(logo_path)):
         logo_width = 35*mm
         logo_height = 35*mm
         canvas.drawImage(logo_path, doc.leftMargin, doc.pagesize[1] - 38*mm, 
