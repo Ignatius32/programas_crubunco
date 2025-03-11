@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, send_file, jsonify
+from flask import Flask, render_template, request, send_file, jsonify, make_response
 import json
 import os
 import requests
@@ -14,7 +14,6 @@ from reportlab.lib import colors
 from reportlab.lib.units import inch, mm
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
-from wsgi import PrefixMiddleware
 
 load_dotenv()  # Load environment variables
 
@@ -138,7 +137,7 @@ def add_header(response):
 def index():
     """Home page with career listing"""
     # Pass all careers from carreras.json to template
-    resp = send_file(render_template('index.html', careers=CARRERAS, now=datetime.now()))
+    resp = make_response(render_template('index.html', careers=CARRERAS, now=datetime.now()))
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     resp.headers['Pragma'] = 'no-cache'
     resp.headers['Expires'] = '0'
@@ -358,9 +357,9 @@ def available_years(year_type):
 # Search Planes de Estudio API Route
 @app.route('/api/search_planes')
 def search_planes():
-    """Search planes de estudio based on criteria"""
-    carrera = request.args.get('carrera', '')
-    vigente = request.args.get('vigente', '')
+    """Search planes de estudio"""
+    carrera = request.args.get('carrera', '').strip()
+    vigente = request.args.get('vigente', '').strip()
     
     results = []
     
@@ -409,20 +408,10 @@ def planes_options():
         'vigencia_states': sorted(list(vigencia_states))
     })
 
-def get_base_url_path():
-    """Get the base URL path for the application."""
-    return '/programas'
-
-# Add prefix middleware to app
-from wsgi import PrefixMiddleware
-app.wsgi_app = PrefixMiddleware(app.wsgi_app)
-
-# Update the existing routes that handle downloads to use the base path
+# Download Program PDF Route
 @app.route('/download/programa/<program_id>')
 def download_programa(program_id):
     """Download a program PDF"""
-    base_url = get_base_url_path()
-    
     # Handle old programs (direct PDF download)
     if program_id.startswith('old-'):
         try:
@@ -431,10 +420,7 @@ def download_programa(program_id):
                 program = OLD_PROGRAMS[index]
                 url = program.get('url_programa')
                 if url:
-                    # Add base URL path if URL is relative
-                    if url.startswith('/'):
-                        url = f"{base_url}{url}"
-                    response = requests.get(url, stream=True, verify=False)
+                    response = requests.get(url, stream=True)
                     if response.status_code == 200:
                         buffer = BytesIO(response.content)
                         # Add codigo carrera to the filename if it exists
@@ -453,7 +439,6 @@ def download_programa(program_id):
             else:
                 return "Programa no encontrado", 404
         except Exception as e:
-            print(f"Error downloading program: {str(e)}")
             return f"Error: {str(e)}", 500
     
     # Handle API programs (dynamically generated PDF)
@@ -509,15 +494,9 @@ def download_plan(plan_version_siu):
         # Handle spaces and special characters in URL
         url = url.replace(' ', '%20')
         
-        # Add base URL path if URL is relative
-        base_url = get_base_url_path()
-        if url.startswith('/'):
-            url = f"{base_url}{url}"
-            
         response = requests.get(url, stream=True, verify=False)  # Added verify=False for self-signed certs
         
         if response.status_code != 200:
-            print(f"Error downloading plan - URL: {url}, Status: {response.status_code}")
             return f"Error descargando el plan: HTTP {response.status_code}", 500
             
         buffer = BytesIO(response.content)
@@ -531,7 +510,7 @@ def download_plan(plan_version_siu):
             mimetype='application/pdf'
         )
     except Exception as e:
-        print(f"Error downloading plan: {str(e)}")
+        print(f"Error downloading plan: {str(e)}")  # Added logging
         return f"Error: {str(e)}", 500
 
 # Table style for HTML content
@@ -1273,58 +1252,6 @@ def search_options():
         'careers': career_options,
         'academic_years': sorted(list(academic_years), reverse=True)
     })
-
-@app.route('/api/careers')
-def get_careers():
-    """Get unique careers from planes_estudio.json"""
-    careers = []
-    seen = set()
-    for plan in PLANES_ESTUDIO:
-        carrera = plan['carrera']
-        if carrera and carrera not in seen:
-            seen.add(carrera)
-            careers.append({
-                'carrera': carrera,
-                'nombre': plan.get('nombre', carrera)
-            })
-    return jsonify(sorted(careers, key=lambda x: x['nombre'] or x['carrera']))
-
-@app.route('/api/search', methods=['POST'])
-def search_programs():
-    """Search programs based on criteria"""
-    data = request.get_json()
-    nombre_materia = data.get('nombre_materia', '').lower()
-    carrera = data.get('carrera', '')
-    ano = data.get('ano', '')
-
-    results = []
-    for program in OLD_PROGRAMS:
-        if nombre_materia and nombre_materia not in program['nombre_materia'].lower():
-            continue
-        if carrera and carrera != program['codigo_carrera']:
-            continue
-        if ano and ano != program['ano_academico']:
-            continue
-        results.append(program)
-
-    return jsonify(results)
-
-@app.route('/api/search_planes', methods=['POST'])
-def search_planes():
-    """Search planes de estudio based on criteria"""
-    data = request.get_json()
-    carrera = data.get('carrera', '')
-    vigente = data.get('vigente', '')
-
-    results = []
-    for plan in PLANES_ESTUDIO:
-        if carrera and carrera != plan['carrera']:
-            continue
-        if vigente and vigente != plan['vigente']:
-            continue
-        results.append(plan)
-
-    return jsonify(results)
 
 if __name__ == '__main__':
     app.run(debug=True)

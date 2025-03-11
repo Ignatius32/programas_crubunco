@@ -135,7 +135,38 @@ class PrefixMiddleware:
             return [output]
 
 # Import the Flask application
-from app import app as application
+try:
+    # Try different import approaches
+    try:
+        from app.app import app
+        application = app
+        logging.info("Flask application imported successfully from app.app")
+    except ImportError:
+        # Try an alternative import path
+        from app import app
+        application = app
+        logging.info("Flask application imported successfully from app")
+except Exception as import_error:
+    # Store the error message for later use
+    error_message = str(import_error)
+    logging.error(f"Error importing Flask application: {error_message}")
+    
+    # Define application function with access to the error_message
+    def application(environ, start_response):
+        status = '500 Internal Server Error'
+        output = f"Import error: {error_message}".encode('utf-8')
+        response_headers = [('Content-type', 'text/plain'),
+                          ('Content-Length', str(len(output)))]
+        start_response(status, response_headers)
+        return [output]
 
-if __name__ == "__main__":
+# Apply the middleware
+if hasattr(application, 'wsgi_app'):
+    application.wsgi_app = PrefixMiddleware(application.wsgi_app)
+    logging.info("Middleware applied to application.wsgi_app")
+else:
+    application = PrefixMiddleware(application)
+    logging.info("Middleware applied directly to application")
+
+if __name__ == '__main__':
     application.run()
