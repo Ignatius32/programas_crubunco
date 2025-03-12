@@ -22,14 +22,12 @@ app.config['API_URL'] = os.environ.get('API_URL', '')  # API URL from environmen
 
 # Load data at startup
 OLD_PROGRAMS = []
-PLANES_ESTUDIO = []
 CARRERAS = []
 
 @app.before_first_request
 def load_data():
-    global OLD_PROGRAMS, PLANES_ESTUDIO, CARRERAS
+    global OLD_PROGRAMS, CARRERAS
     OLD_PROGRAMS = load_old_programs()
-    PLANES_ESTUDIO = load_planes_estudio()
     CARRERAS = load_carreras()
 
 # Function to load old programs from JSON file
@@ -50,18 +48,6 @@ def load_old_programs():
         return old_programs
     except Exception as e:
         print(f"Error loading old programs: {str(e)}")
-        return []
-
-# Function to load planes de estudio from JSON file
-def load_planes_estudio():
-    try:
-        json_path = os.path.join(app.static_folder, 'planes_estudio.json')
-        with open(json_path, 'r', encoding='utf-8') as file:
-            planes = json.load(file)
-        # Filter only planes that have a URL
-        return [plan for plan in planes if plan.get('url_planEstudio')]
-    except Exception as e:
-        print(f"Error loading planes de estudio: {str(e)}")
         return []
 
 # Function to load careers data from JSON file
@@ -354,60 +340,6 @@ def available_years(year_type):
     
     return jsonify(sorted(list(years), reverse=True))
 
-# Search Planes de Estudio API Route
-@app.route('/api/search_planes')
-def search_planes():
-    """Search planes de estudio"""
-    carrera = request.args.get('carrera', '').strip()
-    vigente = request.args.get('vigente', '').strip()
-    
-    results = []
-    
-    for plan in PLANES_ESTUDIO:
-        matches = True
-        
-        if carrera and plan.get('carrera') != carrera:
-            matches = False
-        
-        if vigente and vigente != plan.get('vigente', ''):
-            matches = False
-        
-        if matches and plan.get('url_planEstudio'):
-            results.append(plan)
-    
-    # Sort results so vigente='si' appears first
-    results.sort(key=lambda x: (x.get('vigente', '') != 'si', x.get('carrera', ''), x.get('anio_entrada_vigencia', '')))
-    
-    return jsonify(results)
-
-# Get Planes de Estudios Options API Route
-@app.route('/api/planes_options')
-def planes_options():
-    """Get available options for planes de estudio search form dropdowns"""
-    # Get unique careers and vigencia states from planes de estudio
-    careers = set()
-    vigencia_states = set()
-    
-    for plan in PLANES_ESTUDIO:
-        if plan.get('carrera'):
-            careers.add(plan['carrera'])
-        if plan.get('vigente'):
-            vigencia_states.add(plan['vigente'])
-    
-    # Convert career codes to full names and create option objects
-    career_options = []
-    for code in sorted(careers):
-        name = get_career_name(code)
-        career_options.append({
-            'code': code,
-            'name': name
-        })
-    
-    return jsonify({
-        'careers': career_options,
-        'vigencia_states': sorted(list(vigencia_states))
-    })
-
 # Download Program PDF Route
 @app.route('/download/programa/<program_id>')
 def download_programa(program_id):
@@ -471,34 +403,6 @@ def download_programa(program_id):
         return send_file(
             pdf_buffer,
             download_name=f"{program.get('nombre_materia', 'programa')}{codigo_str}_{program.get('ano_academico', '')}.pdf",
-            as_attachment=True,
-            mimetype='application/pdf'
-        )
-    except Exception as e:
-        return f"Error: {str(e)}", 500
-
-# Download Plan de Estudios Route
-@app.route('/download/plan/<path:plan_version_siu>')
-def download_plan(plan_version_siu):
-    """Download a plan de estudios PDF"""
-    try:
-        # Find matching plan by exact plan_version_SIU match
-        plan = next((p for p in PLANES_ESTUDIO if p['plan_version_SIU'] == plan_version_siu), None)
-        if not plan or not plan.get('url_planEstudio'):
-            return "Plan no encontrado o URL no disponible", 404
-            
-        url = plan['url_planEstudio']
-        response = requests.get(url, stream=True)
-        
-        if response.status_code != 200:
-            return f"Error descargando el plan: HTTP {response.status_code}", 500
-            
-        buffer = BytesIO(response.content)
-        nombre_archivo = f"Plan_{plan.get('nombre', 'de_estudio')}_{plan_version_siu}.pdf"
-        
-        return send_file(
-            buffer,
-            download_name=nombre_archivo,
             as_attachment=True,
             mimetype='application/pdf'
         )
@@ -1116,6 +1020,13 @@ def programa_header_footer(canvas, doc, programa):
     firma_sac = programa.get('firma_sac', '')
     if firma_sac:
         canvas.drawString(firma_x, footer_y, f"{firma_sac}")
+
+    # Add page number in the bottom right corner
+    canvas.setFont('Helvetica', 6)  # Very small font for page number
+    canvas.setFillColorRGB(0.5, 0.5, 0.5)  # Grey color for page number
+    # Calculate position for right alignment, 2mm from right margin (reduced from 5mm)
+    page_num_x = doc.pagesize[0] - doc.rightMargin - 2*mm
+    canvas.drawRightString(page_num_x, 5, str(doc.page))
 
     canvas.restoreState()
 

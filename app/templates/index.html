@@ -24,9 +24,6 @@
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('index') }}#buscarTab">Buscar</a>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('index') }}#planesTab">Planes de Estudio</a>
-                    </li>
                 </ul>
             </div>
         </div>
@@ -44,9 +41,6 @@
                             </li>
                             <li class="nav-item" role="presentation">
                                 <button class="nav-link" id="buscar-tab" data-bs-toggle="tab" data-bs-target="#buscarTab" type="button" role="tab">Buscar</button>
-                            </li>
-                            <li class="nav-item" role="presentation">
-                                <button class="nav-link" id="planes-tab" data-bs-toggle="tab" data-bs-target="#planesTab" type="button" role="tab">Planes de Estudio</button>
                             </li>
                         </ul>
                     </div>
@@ -145,40 +139,6 @@
                                 <div id="program-results" class="mt-4">
                                     <div class="text-center text-muted py-3">
                                         <em>Use los filtros de búsqueda para encontrar programas</em>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <!-- Pestaña de Planes de Estudio -->
-                            <div class="tab-pane fade" id="planesTab" role="tabpanel">
-                                <h5 class="card-title mb-4">Buscar Planes de Estudio</h5>
-                                <form id="planSearch" class="mb-4">
-                                    <div class="row g-3">
-                                        <div class="col-md-6">
-                                            <label for="plan-carrera" class="form-label">Carrera</label>
-                                            <select class="form-select" id="plan-carrera">
-                                                <option value="">Todas las carreras</option>
-                                                <!-- Options will be populated via JavaScript -->
-                                            </select>
-                                        </div>
-                                        <div class="col-md-6">
-                                            <label for="vigente" class="form-label">Estado</label>
-                                            <select class="form-select" id="vigente">
-                                                <option value="">Todos</option>
-                                                <!-- Options will be populated via JavaScript -->
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div class="mt-3 d-flex justify-content-end">
-                                        <button type="submit" class="btn btn-primary">
-                                            <i class="fas fa-search me-1"></i> Buscar
-                                        </button>
-                                    </div>
-                                </form>
-                                
-                                <div id="plan-results" class="mt-4">
-                                    <div class="text-center text-muted py-3">
-                                        <em>Use los filtros de búsqueda para encontrar planes de estudio</em>
                                     </div>
                                 </div>
                             </div>
