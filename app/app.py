@@ -454,7 +454,17 @@ def process_content(content, doc_width, style, is_html=False):
                 if headers:
                     header_row = []
                     for th in headers.find_all(['th', 'td']):
-                        header_row.append(Paragraph(th.get_text().strip(), style))
+                        # Use a custom paragraph style with smaller font for tables to prevent overflow
+                        table_cell_style = ParagraphStyle(
+                            'TableCell',
+                            parent=style,
+                            fontSize=9,  # Smaller font for tables
+                            leading=10,  # Tighter line spacing
+                            wordWrap='CJK',  # Better word wrapping
+                            allowWidows=0,
+                            allowOrphans=0
+                        )
+                        header_row.append(Paragraph(th.get_text().strip(), table_cell_style))
                     if header_row:
                         rows.append(header_row)
                 
@@ -465,17 +475,84 @@ def process_content(content, doc_width, style, is_html=False):
 
                     row = []
                     for td in tr.find_all(['td', 'th']):
-                        row.append(Paragraph(td.get_text().strip(), style))
+                        # Use a custom paragraph style with smaller font for tables
+                        table_cell_style = ParagraphStyle(
+                            'TableCell',
+                            parent=style,
+                            fontSize=9,  # Smaller font for tables
+                            leading=10,  # Tighter line spacing
+                            wordWrap='CJK',  # Better word wrapping
+                            allowWidows=0,
+                            allowOrphans=0
+                        )
+                        
+                        cell_text = td.get_text().strip()
+                        # If cell text is very long, split it into smaller chunks
+                        if len(cell_text) > 300:  # Threshold for splitting
+                            # Split long text into paragraphs of reasonable size
+                            chunks = []
+                            words = cell_text.split()
+                            current_chunk = []
+                            
+                            for word in words:
+                                current_chunk.append(word)
+                                if len(' '.join(current_chunk)) > 250:  # Keep chunks manageable
+                                    chunks.append(' '.join(current_chunk))
+                                    current_chunk = []
+                            
+                            # Add any remaining words
+                            if current_chunk:
+                                chunks.append(' '.join(current_chunk))
+                            
+                            # Create a mini-container for multiple paragraphs in the cell
+                            from reportlab.platypus import KeepInFrame
+                            cell_paragraphs = []
+                            for chunk in chunks:
+                                cell_paragraphs.append(Paragraph(chunk, table_cell_style))
+                                
+                            # Use KeepInFrame to ensure content fits in the cell
+                            max_width = doc_width / (len(tr.find_all(['td', 'th'])) or 1)
+                            # Set a reasonable maxHeight instead of None (None caused TypeError)
+                            kif = KeepInFrame(maxWidth=max_width-12, maxHeight=400, 
+                                             mode='shrink', content=cell_paragraphs)
+                            row.append(kif)
+                        else:
+                            row.append(Paragraph(cell_text, table_cell_style))
 
                     if row:
                         rows.append(row)
 
                 if rows:
                     col_count = max([len(row) for row in rows])
+                    # Distribute column widths evenly (or use more sophisticated approach if needed)
                     col_width = doc_width / col_count
+                    
+                    # Create a custom table style that helps with cell overflow
+                    local_table_style = TableStyle([
+                        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                        ('FONTSIZE', (0, 0), (-1, 0), 9),  # Smaller font for headers
+                        ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
+                        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+                        ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+                        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                        ('FONTSIZE', (0, 1), (-1, -1), 8),  # Smaller font for content
+                        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),  # Thinner grid lines
+                        ('TOPPADDING', (0, 0), (-1, -1), 3),  # Reduced padding
+                        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+                        ('LEFTPADDING', (0, 0), (-1, -1), 3),
+                        ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+                    ])
 
-                    tbl = Table(rows, colWidths=[col_width] * col_count)
-                    tbl.setStyle(table_style)
+                    # Create the table with appropriate settings for splitting
+                    tbl = Table(rows, colWidths=[col_width] * col_count, 
+                               repeatRows=1 if headers else 0,  # Repeat header row on new pages
+                               splitByRow=1)  # Allow table to split across pages by row
+                    tbl.setStyle(local_table_style)
                     elementos.append(tbl)
                     elementos.append(Spacer(1, 0.1*inch))
 
