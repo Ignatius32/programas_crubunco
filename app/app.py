@@ -14,6 +14,8 @@ from reportlab.lib import colors
 from reportlab.lib.units import inch, mm
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+# Import the Unicode utils module
+from unicode_utils import normalize_text, UNICODE_REPLACEMENTS
 
 load_dotenv()  # Load environment variables
 
@@ -444,13 +446,22 @@ def process_content(content, doc_width, style, is_html=False):
     if is_html:
         soup = BeautifulSoup(content, 'html.parser')
         
-        # First check if there are any tables
-        tables = soup.find_all('table')
-        if tables:
-            for table in tables:
+        # Process all elements in order to maintain document structure
+        # Instead of processing all tables and then text, we'll process elements in order
+        for element in soup.body.children if soup.body else soup.children:
+            if isinstance(element, str):
+                # It's a text node
+                text = element.strip()
+                if text:
+                    # Process Unicode in text nodes
+                    text = normalize_text(text)
+                    # Process bullet points and regular paragraphs
+                    elementos.extend(process_plain_text(text, style))
+            elif element.name == 'table':
+                # Process table
                 rows = []
                 # Process table headers
-                headers = table.find('thead')
+                headers = element.find('thead')
                 if headers:
                     header_row = []
                     for th in headers.find_all(['th', 'td']):
@@ -469,7 +480,7 @@ def process_content(content, doc_width, style, is_html=False):
                         rows.append(header_row)
                 
                 # Process table rows
-                for tr in table.find_all('tr'):
+                for tr in element.find_all('tr'):
                     if tr.parent.name == 'thead':
                         continue  # Skip header rows already processed
 
@@ -555,21 +566,37 @@ def process_content(content, doc_width, style, is_html=False):
                     tbl.setStyle(local_table_style)
                     elementos.append(tbl)
                     elementos.append(Spacer(1, 0.1*inch))
+            elif element.name == 'p':
+                # Process paragraphs directly
+                paragraph_text = element.get_text().strip()
+                if paragraph_text:
+                    # Process Unicode in paragraphs
+                    paragraph_text = normalize_text(paragraph_text)
+                    elementos.append(Paragraph(paragraph_text, style))
+            elif element.name in ['ul', 'ol']:
+                # Process lists directly
+                list_items = []
+                for li in element.find_all('li'):
+                    item_text = li.get_text().strip()
+                    # Process Unicode in list items
+                    item_text = normalize_text(item_text)
+                    list_items.append(ListItem(Paragraph(item_text, style)))
+                
+                if list_items:
+                    elementos.append(ListFlowable(
+                        list_items,
+                        bulletType='decimal' if element.name == 'ol' else 'bullet',
+                        leftIndent=20,
+                        spaceBefore=6,
+                        spaceAfter=6
+                    ))
 
-            # Process remaining content outside of tables
-            remaining_text = ""
-            for element in soup.find_all(string=True):
-                if not any(parent.name == "table" for parent in element.parents):
-                    remaining_text += element.string + "\n"
+        return elementos
 
-            # Process this remaining text for bullet points and normal paragraphs
-            if remaining_text.strip():
-                elementos.extend(process_plain_text(remaining_text, style))
-
-            return elementos
-
-        # If no tables found, continue with normal processing
-        # Get text with preserved newlines
+    # If not HTML or no tables found, continue with normal processing
+    # Get text with preserved newlines
+    if is_html:
+        soup = BeautifulSoup(content, 'html.parser')
         text = soup.get_text('\n', strip=True)
     else:
         text = content
@@ -579,82 +606,8 @@ def process_content(content, doc_width, style, is_html=False):
 
 def normalize_unicode(text):
     """Normalize Unicode characters to improve rendering"""
-    if not text:
-        return text
-        
-    # Map of problematic Unicode code points to their replacements
-    unicode_replacements = {
-        '\u0080': '€',      # Euro sign
-        '\u0082': '‚',      # Single low-9 quotation mark
-        '\u0083': 'ƒ',      # Latin small f with hook
-        '\u0084': '„',      # Double low-9 quotation mark
-        '\u0085': '…',      # Horizontal ellipsis
-        '\u0086': '†',      # Dagger
-        '\u0087': '‡',      # Double dagger
-        '\u0088': 'ˆ',      # Modifier letter circumflex accent
-        '\u0089': '‰',      # Per mille sign
-        '\u008A': 'Š',      # Latin capital letter S with caron
-        '\u008B': '‹',      # Single left-pointing angle quotation
-        '\u008C': 'Œ',      # Latin capital ligature OE
-        '\u008E': 'Ž',      # Latin capital letter Z with caron
-        '\u0091': ''',      # Left single quotation mark
-        '\u0092': ''',      # Right single quotation mark
-        '\u0093': '"',      # Left double quotation mark
-        '\u0094': '"',      # Right double quotation mark
-        '\u0095': '•',      # Bullet
-        '\u0096': '–',      # En dash
-        '\u0097': '—',      # Em dash
-        '\u0098': '˜',      # Small tilde
-        '\u0099': '™',      # Trade mark sign
-        '\u009A': 'š',      # Latin small letter s with caron
-        '\u009B': '›',      # Single right-pointing angle quotation
-        '\u009C': 'œ',      # Latin small ligature oe
-        '\u009E': 'ž',      # Latin small letter z with caron
-        '\u009F': 'Ÿ',      # Latin capital letter Y with diaeresis
-        
-        # Other common characters that may appear as squares
-        '\u00A0': ' ',      # Non-breaking space
-        '\u00AD': '-',      # Soft hyphen
-        '\u2010': '-',      # Hyphen
-        '\u2011': '-',      # Non-breaking hyphen
-        '\u2012': '-',      # Figure dash
-        '\u2013': '–',      # En dash
-        '\u2014': '—',      # Em dash
-        '\u2015': '―',      # Horizontal bar
-        '\u2018': ''',      # Left single quotation mark
-        '\u2019': ''',      # Right single quotation mark
-        '\u201A': '‚',      # Single low-9 quotation mark
-        '\u201B': '‛',      # Single high-reversed-9 quotation mark
-        '\u201C': '"',      # Left double quotation mark
-        '\u201D': '"',      # Right double quotation mark
-        '\u201E': '„',      # Double low-9 quotation mark
-        '\u201F': '‟',      # Double high-reversed-9 quotation mark
-        '\u2020': '†',      # Dagger
-        '\u2021': '‡',      # Double dagger
-        '\u2022': '•',      # Bullet
-        '\u2026': '…',      # Horizontal ellipsis
-        '\u2028': ' ',      # Line separator
-        '\u2029': ' ',      # Paragraph separator
-        '\u2039': '‹',      # Single left-pointing angle quotation
-        '\u203A': '›',      # Single right-pointing angle quotation
-        '\u2212': '-',      # Minus sign
-        '\u2713': '✓',      # Check mark
-        '\u2714': '✔',      # Heavy check mark
-        '\u2716': '✖',      # Heavy multiplication X
-        '\u2717': '✗',      # Ballot X
-        '\u2718': '✘',      # Heavy ballot X
-        '\u271A': '✚',      # Heavy Greek cross
-        '\u271B': '✛',      # Open center cross
-        '\u271C': '✜',      # Heavy open center cross
-        '\uFEFF': '',       # Zero width no-break space (BOM)
-    }
-    
-    # Apply all replacements
-    for char, replacement in unicode_replacements.items():
-        if char in text:
-            text = text.replace(char, replacement)
-    
-    return text
+    # Use the centralized normalize_text function from unicode_utils
+    return normalize_text(text)
 
 def process_plain_text(text, style):
     """Process plain text, preserving bullet points, Unicode characters and their original order"""
@@ -753,284 +706,105 @@ def process_html_content(content, doc_width, normal_style):
         return []
     
     # First, replace problematic Unicode characters with their HTML equivalents
-    # Common Unicode quotation marks and other special characters
-    unicode_replacements = {
-        '\u0091': "'",  # Left single quotation mark
-        '\u0092': "'",  # Right single quotation mark
-        '\u0093': '"',  # Left double quotation mark
-        '\u0094': '"',  # Right double quotation mark
-        '\u0095': '•',  # Bullet
-        '\u0096': '–',  # En dash
-        '\u0097': '—',  # Em dash
-        '\u00AB': '«',  # Left-pointing double angle quotation mark
-        '\u00BB': '»',  # Right-pointing double angle quotation mark
-        '\u201C': '"',  # Left double quotation mark
-        '\u201D': '"',  # Right double quotation mark
-        '\u2018': ''',  # Left single quotation mark
-        '\u2019': ''',  # Right single quotation mark
-    }
-    
-    # Replace Unicode characters
-    for unicode_char, replacement in unicode_replacements.items():
-        if unicode_char in content:
-            content = content.replace(unicode_char, replacement)
-    
-    # Check if we need to convert raw text formatting to HTML
-    if '<' not in content:
-        # Import re for regex operations
-        import re
-        
-        # Apply common formatting patterns for academic/technical content
-        
-        # 1. Convert markdown-style italics to HTML
-        # Replace *text* with <i>text</i> but only if * is not part of a word
-        content = re.sub(r'(?<!\w)\*([^\*]+)\*(?!\w)', r'<i>\1</i>', content)
-        # Replace _text_ with <i>text</i> but only if _ is not part of a word
-        content = re.sub(r'(?<!\w)_([^_]+)_(?!\w)', r'<i>\1</i>', content)
-        
-        # Italicize technical terms commonly found in language education
-        # Find "TO + verb" patterns (common in language teaching)
-        content = re.sub(r'\bTO\s+(BE|DO|HAVE)\b', r'<i>TO \1</i>', content)
-        
-        # Check if we have bullet points (• or – are common bullet characters)
-        bullet_chars = ['\u0095', '\u0096', '•', '–']
-        has_bullets = any(bullet in content for bullet in bullet_chars)
-        
-        if has_bullets:
-            # Convert bullet points to HTML list
-            # First split by newlines to preserve paragraph structure
-            paragraphs = content.split('\n')
-            html_parts = []
-            
-            in_list = False
-            for para in paragraphs:
-                para_strip = para.strip()
-                is_bullet_point = any(para_strip.startswith(bullet) for bullet in bullet_chars)
-                
-                if is_bullet_point:
-                    # Start a new list if not already in one
-                    if not in_list:
-                        html_parts.append('<ul>')
-                        in_list = True
-                    
-                    # Clean up the bullet point and add as list item
-                    item = para_strip
-                    for bullet in bullet_chars:
-                        if item.startswith(bullet):
-                            item = item.replace(bullet, '', 1).strip()
-                            break
-                    html_parts.append(f'<li>{item}</li>')
-                else:
-                    # Close the list if we were in one
-                    if in_list:
-                        html_parts.append('</ul>')
-                        in_list = False
-                    
-                    # Add as regular paragraph if not empty
-                    if para.strip():
-                        html_parts.append(f'<p>{para.strip()}</p>')
-            
-            # Close any open list
-            if in_list:
-                html_parts.append('</ul>')
-            
-            html_content = ''.join(html_parts)
-            soup = BeautifulSoup(html_content, 'html.parser')
-        else:
-            # If it's plain text without bullets, just create paragraphs from newlines
-            paragraphs = content.split('\n')
-            elements = []
-            for para in paragraphs:
-                if para.strip():
-                    elements.append(Paragraph(para.strip(), normal_style))
-            return elements
-    else:
-        # Content already has HTML tags
-        soup = BeautifulSoup(content, 'html.parser')
+    # Use the centralized unicode replacements from unicode_utils
+    content = normalize_text(content)
             
     try:
-        # ...existing processing code...
+        soup = BeautifulSoup(content, 'html.parser')
         elements = []
-
-        # Process tables first
-        tables = soup.find_all('table')
-        if tables:
-            # ...existing table processing code...
-            for table in tables:
+        
+        # Process all top-level elements in their original order to maintain the structure
+        for element in soup.children:
+            if isinstance(element, str):
+                # Handle pure text nodes (like titles between tables)
+                text = element.strip()
+                if text:
+                    # Process Unicode in pure text nodes
+                    text = normalize_text(text)
+                    elements.append(Paragraph(text, normal_style))
+            elif element.name == 'table':
+                # Process table
                 rows = []
-
-                headers = table.find('thead')
+                headers = element.find('thead')
                 if headers:
                     header_row = []
                     for th in headers.find_all(['th', 'td']):
-                        header_row.append(Paragraph(th.get_text().strip(), normal_style))
+                        cell_text = th.get_text().strip()
+                        # Process Unicode in headers
+                        cell_text = normalize_text(cell_text)
+                        header_row.append(Paragraph(cell_text, normal_style))
                     if header_row:
                         rows.append(header_row)
-
-                for tr in table.find_all('tr'):
+                
+                for tr in element.find_all('tr'):
                     if tr.parent.name == 'thead':
-                        continue
-
+                        continue  # Skip header rows already processed
+                    
                     row = []
                     for td in tr.find_all(['td', 'th']):
-                        # Use process_formatted_text to handle rich text
-                        cell_text = td.get_text()
+                        cell_text = td.get_text().strip()
+                        # Process Unicode in cell content
+                        cell_text = normalize_text(cell_text)
                         row.append(Paragraph(cell_text, normal_style))
-
+                    
                     if row:
                         rows.append(row)
-
+                
                 if rows:
                     col_count = max([len(row) for row in rows])
                     col_width = doc_width / col_count
-
+                    
                     tbl = Table(rows, colWidths=[col_width] * col_count)
                     tbl.setStyle(table_style)
                     elements.append(tbl)
                     elements.append(Spacer(1, 0.1*inch))
-            return elements
-
-        # Process lists (both HTML lists and unicode bullet lists)
-        ul_elements = soup.find_all(['ul', 'ol'])
-        if ul_elements:
-            for ul in ul_elements:
+            elif element.name in ['ul', 'ol']:
+                # Process lists
                 list_items = []
-                for li in ul.find_all('li'):
-                    # Properly handle rich text formatting in list items
-                    text = li.get_text()
+                for li in element.find_all('li'):
+                    text = li.get_text().strip()
+                    # Process Unicode in list items
+                    text = normalize_text(text)
                     list_items.append(ListItem(Paragraph(text, normal_style)))
-
-                # Check if it's an ordered list
-                is_ordered = ul.name == 'ol'
-                bullet_type = 'decimal' if is_ordered else 'bullet'
-
+                
                 list_flowable = ListFlowable(
                     list_items,
-                    bulletType=bullet_type,
+                    bulletType='decimal' if element.name == 'ol' else 'bullet',
                     leftIndent=20,
                     spaceBefore=6,
                     spaceAfter=6
                 )
                 elements.append(list_flowable)
-
-            # After processing lists, look for paragraphs outside lists
-            for p in soup.find_all('p'):
-                if not any(p.find_parents(['ul', 'ol', 'li'])):
-                    text = p.get_text()
-                    if text.strip():
-                        elements.append(Paragraph(text, normal_style))
-
-            # If we have elements, return them; otherwise continue with other checks
-            if elements:
-                return elements
-
-        # Process paragraphs with formatting
-        p_elements = soup.find_all('p')
-        if p_elements:
-            for p in p_elements:
-                text = p.get_text()
-                if text.strip():
+            elif element.name == 'p':
+                # Process paragraphs
+                text = element.get_text().strip()
+                if text:
+                    # Process Unicode in paragraphs
+                    text = normalize_text(text)
                     elements.append(Paragraph(text, normal_style))
-
-            # If we have paragraph elements, return them
-            if elements:
-                return elements
-
-        # If no specific elements found, check for unprocessed text
-        # We need to handle both the bullet points and preserve formatting
-        text = soup.get_text()
-
-        # Check for bullet points in remaining text
-        bullet_chars = ['\u0095', '\u0096', '•', '–']  # Include all bullet types
-        has_remaining_bullets = any(bullet in text for bullet in bullet_chars)
-
-        if has_remaining_bullets:
-            # ...existing bullet point processing code...
-            current_paragraphs = []
-            list_items = []
-            in_list = False
-
-            # Split by lines and process each
-            for line in text.split('\n'):
-                line = line.strip()
-                if not line:
-                    continue
-
-                # Check if this line is a bullet point
-                is_bullet = any(line.startswith(bullet) for bullet in bullet_chars)
-
-                if is_bullet:
-                    # If we have text waiting to be output, do it now
-                    if current_paragraphs and not in_list:
-                        for para in current_paragraphs:
-                            elements.append(Paragraph(para, normal_style))
-                        current_paragraphs = []
-
-                    # Start a new list if needed
-                    if not in_list:
-                        in_list = True
-
-                    # Clean up the bullet point and add as list item
-                    for bullet in bullet_chars:
-                        if line.startswith(bullet):
-                            item = line.replace(bullet, '', 1).strip()
-                            list_items.append(ListItem(Paragraph(item, normal_style)))
-                            break
-                else:
-                    # Not a bullet point
-                    if in_list:
-                        # End the current list
-                        if list_items:
-                            list_flowable = ListFlowable(
-                                list_items,
-                                bulletType='bullet',
-                                leftIndent=20,
-                                spaceBefore=6,
-                                spaceAfter=6
-                            )
-                            elements.append(list_flowable)
-                            list_items = []
-                        in_list = False
-
-                    # Add as regular paragraph
-                    current_paragraphs.append(line)
-
-            # Process any remaining content
-            if in_list and list_items:
-                list_flowable = ListFlowable(
-                    list_items,
-                    bulletType='bullet',
-                    leftIndent=20,
-                    spaceBefore=6,
-                    spaceAfter=6
-                )
-                elements.append(list_flowable)
-
-            if current_paragraphs:
-                for para in current_paragraphs:
-                    elements.append(Paragraph(para, normal_style))
-
-            return elements
-
-        # If we got here, process the whole text by paragraphs
-        text = soup.get_text()
-
-        # Handle non-HTML formatting: convert simple newlines to paragraphs
-        paragraphs = []
-        if '\n' in text:
-            for para in text.split('\n'):
+            elif element.string and element.string.strip():
+                # Process any other elements with text content
+                text = element.string.strip()
+                if text:
+                    # Process Unicode in other elements
+                    text = normalize_text(text)
+                    elements.append(Paragraph(text, normal_style))
+        
+        # If no elements were processed but we have content, handle it as plain text
+        if not elements and soup.get_text().strip():
+            text = soup.get_text().strip()
+            # Process Unicode in plain text
+            text = normalize_text(text)
+            paragraphs = text.split('\n')
+            for para in paragraphs:
                 if para.strip():
-                    paragraphs.append(para.strip())
-        else:
-            paragraphs = [text]
-
-        for para in paragraphs:
-            if para.strip():
-                elements.append(Paragraph(para.strip(), normal_style))
-
+                    elements.append(Paragraph(para.strip(), normal_style))
+        
         return elements
     except Exception as e:
         print(f"Error procesando HTML: {str(e)}")
+        # In case of any error, try to clean the content and return it as plain text
+        content = normalize_text(content)
         return [Paragraph(content, normal_style)]
 
 def programa_header_footer(canvas, doc, programa):
