@@ -15,7 +15,9 @@ from reportlab.lib.units import inch, mm
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 # Import the Unicode utils module
-from unicode_utils import normalize_text, UNICODE_REPLACEMENTS
+from unicode_utils import normalize_text, UNICODE_REPLACEMENTS, decode_html_entities
+import re
+from html import unescape
 
 load_dotenv()  # Load environment variables
 
@@ -455,124 +457,43 @@ def process_content(content, doc_width, style, is_html=False):
                 if text:
                     # Process Unicode in text nodes
                     text = normalize_text(text)
+                    # Decode HTML entities
+                    text = decode_html_entities(text)
                     # Process bullet points and regular paragraphs
                     elementos.extend(process_plain_text(text, style))
             elif element.name == 'table':
-                # Process table
-                rows = []
-                # Process table headers
-                headers = element.find('thead')
-                if headers:
-                    header_row = []
-                    for th in headers.find_all(['th', 'td']):
-                        # Use a custom paragraph style with smaller font for tables to prevent overflow
-                        table_cell_style = ParagraphStyle(
-                            'TableCell',
-                            parent=style,
-                            fontSize=9,  # Smaller font for tables
-                            leading=10,  # Tighter line spacing
-                            wordWrap='CJK',  # Better word wrapping
-                            allowWidows=0,
-                            allowOrphans=0
-                        )
-                        header_row.append(Paragraph(th.get_text().strip(), table_cell_style))
-                    if header_row:
-                        rows.append(header_row)
-                
-                # Process table rows
-                for tr in element.find_all('tr'):
-                    if tr.parent.name == 'thead':
-                        continue  # Skip header rows already processed
-
-                    row = []
-                    for td in tr.find_all(['td', 'th']):
-                        # Use a custom paragraph style with smaller font for tables
-                        table_cell_style = ParagraphStyle(
-                            'TableCell',
-                            parent=style,
-                            fontSize=9,  # Smaller font for tables
-                            leading=10,  # Tighter line spacing
-                            wordWrap='CJK',  # Better word wrapping
-                            allowWidows=0,
-                            allowOrphans=0
-                        )
-                        
-                        cell_text = td.get_text().strip()
-                        # If cell text is very long, split it into smaller chunks
-                        if len(cell_text) > 300:  # Threshold for splitting
-                            # Split long text into paragraphs of reasonable size
-                            chunks = []
-                            words = cell_text.split()
-                            current_chunk = []
-                            
-                            for word in words:
-                                current_chunk.append(word)
-                                if len(' '.join(current_chunk)) > 250:  # Keep chunks manageable
-                                    chunks.append(' '.join(current_chunk))
-                                    current_chunk = []
-                            
-                            # Add any remaining words
-                            if current_chunk:
-                                chunks.append(' '.join(current_chunk))
-                            
-                            # Create a mini-container for multiple paragraphs in the cell
-                            from reportlab.platypus import KeepInFrame
-                            cell_paragraphs = []
-                            for chunk in chunks:
-                                cell_paragraphs.append(Paragraph(chunk, table_cell_style))
-                                
-                            # Use KeepInFrame to ensure content fits in the cell
-                            max_width = doc_width / (len(tr.find_all(['td', 'th'])) or 1)
-                            # Set a reasonable maxHeight instead of None (None caused TypeError)
-                            kif = KeepInFrame(maxWidth=max_width-12, maxHeight=400, 
-                                             mode='shrink', content=cell_paragraphs)
-                            row.append(kif)
-                        else:
-                            row.append(Paragraph(cell_text, table_cell_style))
-
-                    if row:
-                        rows.append(row)
-
-                if rows:
-                    col_count = max([len(row) for row in rows])
-                    # Distribute column widths evenly (or use more sophisticated approach if needed)
-                    col_width = doc_width / col_count
-                    
-                    # Create a custom table style that helps with cell overflow
-                    local_table_style = TableStyle([
-                        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                        ('FONTSIZE', (0, 0), (-1, 0), 9),  # Smaller font for headers
-                        ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
-                        ('BACKGROUND', (0, 1), (-1, -1), colors.white),
-                        ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
-                        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-                        ('FONTSIZE', (0, 1), (-1, -1), 8),  # Smaller font for content
-                        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),  # Thinner grid lines
-                        ('TOPPADDING', (0, 0), (-1, -1), 3),  # Reduced padding
-                        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-                        ('LEFTPADDING', (0, 0), (-1, -1), 3),
-                        ('RIGHTPADDING', (0, 0), (-1, -1), 3),
-                    ])
-
-                    # Create the table with appropriate settings for splitting
-                    tbl = Table(rows, colWidths=[col_width] * col_count, 
-                               repeatRows=1 if headers else 0,  # Repeat header row on new pages
-                               splitByRow=1)  # Allow table to split across pages by row
-                    tbl.setStyle(local_table_style)
-                    elementos.append(tbl)
-                    elementos.append(Spacer(1, 0.1*inch))
+                # Process table - use specialized handler
+                table_elements = process_html_table(element, doc_width, style)
+                elementos.extend(table_elements)
+                elementos.append(Spacer(1, 0.1*inch))
             elif element.name == 'p':
                 # Process paragraphs directly
                 paragraph_text = element.get_text().strip()
                 if paragraph_text:
                     # Process Unicode in paragraphs
                     paragraph_text = normalize_text(paragraph_text)
+                    # Decode HTML entities
+                    paragraph_text = decode_html_entities(paragraph_text)
                     elementos.append(Paragraph(paragraph_text, style))
+            elif element.name == 'div':
+                # Process div containers (which might contain tables)
+                for child in element.children:
+                    if isinstance(child, str):
+                        text = child.strip()
+                        if text:
+                            text = normalize_text(text)
+                            text = decode_html_entities(text)
+                            elementos.extend(process_plain_text(text, style))
+                    elif child.name == 'table':
+                        table_elements = process_html_table(child, doc_width, style)
+                        elementos.extend(table_elements)
+                        elementos.append(Spacer(1, 0.1*inch))
+                    elif child.name == 'p':
+                        paragraph_text = child.get_text().strip()
+                        if paragraph_text:
+                            paragraph_text = normalize_text(paragraph_text)
+                            paragraph_text = decode_html_entities(paragraph_text)
+                            elementos.append(Paragraph(paragraph_text, style))
             elif element.name in ['ul', 'ol']:
                 # Process lists directly
                 list_items = []
@@ -580,6 +501,8 @@ def process_content(content, doc_width, style, is_html=False):
                     item_text = li.get_text().strip()
                     # Process Unicode in list items
                     item_text = normalize_text(item_text)
+                    # Decode HTML entities
+                    item_text = decode_html_entities(item_text)
                     list_items.append(ListItem(Paragraph(item_text, style)))
                 
                 if list_items:
@@ -598,11 +521,197 @@ def process_content(content, doc_width, style, is_html=False):
     if is_html:
         soup = BeautifulSoup(content, 'html.parser')
         text = soup.get_text('\n', strip=True)
+        # Decode HTML entities
+        text = decode_html_entities(text)
     else:
         text = content
 
     # Process plain text content (with or without bullet points)
     return process_plain_text(text, style)
+
+def process_html_table(table_element, doc_width, style):
+    """
+    Process an HTML table into a ReportLab Table, properly handling colspans and rowspans.
+    This function is specifically designed to handle complex tables with merged cells.
+    """
+    # Initialize data structure to track the grid and cell spans
+    rows = table_element.find_all('tr', recursive=True)
+    
+    # Calculate max columns by examining colspans in all rows
+    max_cols = 0
+    for row in rows:
+        cols = 0
+        for cell in row.find_all(['td', 'th']):
+            colspan = int(cell.get('colspan', 1))
+            cols += colspan
+        max_cols = max(max_cols, cols)
+    
+    # Initialize table grid with None (empty cells)
+    grid = [[None for _ in range(max_cols)] for _ in range(len(rows))]
+    
+    # First pass: populate grid with cell content and track spans
+    for row_idx, row in enumerate(rows):
+        col_idx = 0
+        
+        # Skip columns that are already occupied by rowspans
+        while col_idx < max_cols and grid[row_idx][col_idx] is not None:
+            col_idx += 1
+        
+        for cell in row.find_all(['td', 'th']):
+            # Skip if we've gone beyond our grid (safety check)
+            if col_idx >= max_cols:
+                break
+                
+            # Get cell attributes
+            colspan = int(cell.get('colspan', 1))
+            rowspan = int(cell.get('rowspan', 1))
+            
+            # Process cell content
+            cell_text = cell.get_text().strip()
+            cell_text = normalize_text(cell_text)
+            cell_text = decode_html_entities(cell_text)
+            
+            # Check for bold text
+            is_bold = False
+            if cell.find(['b', 'strong']):
+                is_bold = True
+            elif 'style' in cell.attrs:
+                style_text = cell['style'].lower()
+                if 'font-weight:700' in style_text or 'font-weight:bold' in style_text or 'font-weight: 700' in style_text:
+                    is_bold = True
+            
+            # Check for background color (we'll use this for styling)
+            bg_color = None
+            if 'style' in cell.attrs:
+                style_text = cell['style'].lower()
+                bg_match = re.search(r'background-color\s*:\s*(#[a-f0-9]{6}|#[a-f0-9]{3}|rgba?\([^)]+\)|[a-z]+)', style_text)
+                if bg_match:
+                    color_text = bg_match.group(1)
+                    # Convert basic colors to ReportLab colors
+                    if color_text == '#999999' or color_text == '#999':
+                        bg_color = colors.Color(0.6, 0.6, 0.6)  # Equivalent to #999999
+                    elif color_text == '#b2b2b2':
+                        bg_color = colors.Color(0.7, 0.7, 0.7)  # Equivalent to #b2b2b2
+                    elif color_text.startswith('#'):
+                        try:
+                            # Handle hex colors
+                            if len(color_text) == 4:  # #RGB format
+                                r = int(color_text[1] + color_text[1], 16) / 255
+                                g = int(color_text[2] + color_text[2], 16) / 255
+                                b = int(color_text[3] + color_text[3], 16) / 255
+                            else:  # #RRGGBB format
+                                r = int(color_text[1:3], 16) / 255
+                                g = int(color_text[3:5], 16) / 255
+                                b = int(color_text[5:7], 16) / 255
+                            bg_color = colors.Color(r, g, b)
+                        except ValueError:
+                            # If color parsing fails, default to light grey
+                            bg_color = colors.lightgrey
+            
+            # Create cell style based on formatting
+            cell_style = ParagraphStyle(
+                'TableCell',
+                parent=style,
+                fontSize=9,
+                leading=10,
+                wordWrap='CJK',
+                alignment=1,  # Center alignment
+                fontName='Helvetica-Bold' if is_bold else 'Helvetica'
+            )
+            
+            # Create cell content as Paragraph
+            cell_content = Paragraph(cell_text, cell_style)
+            
+            # Store the cell in the grid with its formatting information
+            grid[row_idx][col_idx] = {
+                'content': cell_content,
+                'colspan': colspan,
+                'rowspan': rowspan,
+                'bg_color': bg_color,
+                'is_bold': is_bold
+            }
+            
+            # Mark spanned cells with references to the main cell
+            for r in range(rowspan):
+                for c in range(colspan):
+                    if r == 0 and c == 0:
+                        continue  # Skip the main cell which we just filled
+                    
+                    # Check if within grid bounds
+                    if (row_idx + r < len(grid)) and (col_idx + c < max_cols):
+                        grid[row_idx + r][col_idx + c] = 'SPAN'  # Mark as a spanned cell
+            
+            # Move to next available column
+            col_idx += colspan
+            
+            # Skip any columns that are already filled
+            while col_idx < max_cols and grid[row_idx][col_idx] is not None:
+                col_idx += 1
+    
+    # Convert grid to data format for ReportLab Table
+    table_data = []
+    for row in grid:
+        table_row = []
+        for cell in row:
+            if cell is None:
+                # Empty cell
+                table_row.append('')
+            elif cell == 'SPAN':
+                # This position is part of a span, will be handled by ReportLab's span mechanism
+                table_row.append('')
+            else:
+                # Regular cell with content
+                table_row.append(cell['content'])
+        table_data.append(table_row)
+    
+    # Calculate column widths - equal distribution
+    col_widths = [doc_width / max_cols] * max_cols
+    
+    # Create the table
+    table = Table(table_data, colWidths=col_widths)
+    
+    # Prepare table style commands
+    style_commands = [
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+    ]
+    
+    # Process spans and background colors
+    for row_idx, row in enumerate(grid):
+        for col_idx, cell in enumerate(row):
+            if isinstance(cell, dict):  # Only process actual cells, not spans or None
+                # Handle background color
+                if cell['bg_color']:
+                    span_end_row = row_idx + cell['rowspan'] - 1
+                    span_end_col = col_idx + cell['colspan'] - 1
+                    style_commands.append(
+                        ('BACKGROUND', (col_idx, row_idx), (span_end_col, span_end_row), cell['bg_color'])
+                    )
+                
+                # Handle colspan/rowspan
+                if cell['colspan'] > 1 or cell['rowspan'] > 1:
+                    span_end_row = row_idx + cell['rowspan'] - 1
+                    span_end_col = col_idx + cell['colspan'] - 1
+                    style_commands.append(
+                        ('SPAN', (col_idx, row_idx), (span_end_col, span_end_row))
+                    )
+                
+                # Apply bold font if needed
+                if cell['is_bold']:
+                    span_end_row = row_idx + cell['rowspan'] - 1
+                    span_end_col = col_idx + cell['colspan'] - 1
+                    style_commands.append(
+                        ('FONTNAME', (col_idx, row_idx), (span_end_col, span_end_row), 'Helvetica-Bold')
+                    )
+    
+    # Apply all styles to the table
+    table.setStyle(TableStyle(style_commands))
+    
+    return [table]
 
 def normalize_unicode(text):
     """Normalize Unicode characters to improve rendering"""
@@ -612,6 +721,9 @@ def normalize_unicode(text):
 def process_plain_text(text, style):
     """Process plain text, preserving bullet points, Unicode characters and their original order"""
     elementos = []
+    
+    # Decode HTML entities
+    text = decode_html_entities(text)
     
     # Expanded list of bullet characters to detect
     bullet_chars = [
@@ -700,6 +812,129 @@ def process_plain_text(text, style):
     
     return elementos
 
+# Let's properly implement process_html_table to handle complex tables with colspan/rowspan
+def process_complex_html_table(table_element, doc_width, style):
+    """
+    Process complex HTML tables with colspan, rowspan, and background colors
+    """
+    # First, analyze the table structure
+    rows = table_element.find_all('tr', recursive=True)
+    
+    # Calculate the maximum number of columns by examining all rows
+    max_cols = 0
+    for row in rows:
+        cols = 0
+        for cell in row.find_all(['td', 'th'], recursive=False):
+            colspan = int(cell.get('colspan', 1))
+            cols += colspan
+        max_cols = max(max_cols, cols)
+    
+    # Initialize the table data structure with empty cells
+    table_data = []
+    row_spans = {}  # Track cells with rowspan
+    
+    # Process each row
+    for row_idx, row in enumerate(rows):
+        row_data = [''] * max_cols  # Initialize with empty cells
+        col_idx = 0
+        
+        # Handle continued rowspans from previous rows
+        for span_col, (content, remaining_rows) in list(row_spans.items()):
+            row_data[span_col] = content if row_idx == 0 else ''
+            
+            if remaining_rows > 1:
+                # Update for the next row
+                row_spans[span_col] = (content, remaining_rows - 1)
+            else:
+                # Remove completed span
+                del row_spans[span_col]
+        
+        # Process cells in the current row
+        for cell in row.find_all(['td', 'th'], recursive=False):
+            # Skip positions already filled by row spans
+            while col_idx < len(row_data) and row_data[col_idx] != '':
+                col_idx += 1
+            
+            if col_idx >= len(row_data):
+                break  # Safety check
+            
+            # Get cell attributes
+            colspan = int(cell.get('colspan', 1))
+            rowspan = int(cell.get('rowspan', 1))
+            
+            # Process cell content
+            cell_text = cell.get_text().strip()
+            cell_text = normalize_text(cell_text)
+            cell_text = decode_html_entities(cell_text)
+            
+            # Determine if cell content is bold
+            is_bold = bool(cell.find('b') or cell.find('strong'))
+            if 'style' in cell.attrs:
+                style_attr = cell['style'].lower()
+                if 'font-weight:700' in style_attr or 'font-weight:bold' in style_attr:
+                    is_bold = True
+            
+            # Create cell style
+            cell_style = ParagraphStyle(
+                'TableCell',
+                parent=style,
+                fontSize=9,
+                leading=10,
+                wordWrap='CJK',
+                alignment=1,  # Center
+                fontName='Helvetica-Bold' if is_bold else 'Helvetica'
+            )
+            
+            # Create cell content
+            cell_content = Paragraph(cell_text, cell_style)
+            
+            # Place the cell in the current position
+            row_data[col_idx] = cell_content
+            
+            # Handle colspan - mark positions as used
+            for i in range(1, colspan):
+                if col_idx + i < len(row_data):
+                    row_data[col_idx + i] = ''
+            
+            # Handle rowspan - store for future rows
+            if rowspan > 1:
+                for r in range(1, rowspan):
+                    if row_idx + r not in row_spans:
+                        row_spans[row_idx + r] = {}
+                    for c in range(colspan):
+                        if col_idx + c < len(row_data):
+                            row_spans[row_idx + r][col_idx + c] = (cell_content, rowspan - 1)
+            
+            # Move to the next position, accounting for colspan
+            col_idx += colspan
+        
+        # Add the processed row to the table data
+        table_data.append(row_data)
+    
+    # Create ReportLab table
+    # Set column widths proportionally
+    col_width = doc_width / max_cols
+    col_widths = [col_width] * max_cols
+    
+    # Create table with appropriate styling
+    table = Table(table_data, colWidths=col_widths)
+    
+    # Apply styling
+    table_style = [
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+    ]
+    
+    # Apply the style to the table
+    table.setStyle(TableStyle(table_style))
+    
+    return [table]
+
+# Replace existing process_html_content with our improved version that calls process_complex_html_table
 def process_html_content(content, doc_width, normal_style):
     # Handle empty content
     if not content:
@@ -708,6 +943,7 @@ def process_html_content(content, doc_width, normal_style):
     # First, replace problematic Unicode characters with their HTML equivalents
     # Use the centralized unicode replacements from unicode_utils
     content = normalize_text(content)
+    content = decode_html_entities(content)
             
     try:
         soup = BeautifulSoup(content, 'html.parser')
@@ -723,41 +959,10 @@ def process_html_content(content, doc_width, normal_style):
                     text = normalize_text(text)
                     elements.append(Paragraph(text, normal_style))
             elif element.name == 'table':
-                # Process table
-                rows = []
-                headers = element.find('thead')
-                if headers:
-                    header_row = []
-                    for th in headers.find_all(['th', 'td']):
-                        cell_text = th.get_text().strip()
-                        # Process Unicode in headers
-                        cell_text = normalize_text(cell_text)
-                        header_row.append(Paragraph(cell_text, normal_style))
-                    if header_row:
-                        rows.append(header_row)
-                
-                for tr in element.find_all('tr'):
-                    if tr.parent.name == 'thead':
-                        continue  # Skip header rows already processed
-                    
-                    row = []
-                    for td in tr.find_all(['td', 'th']):
-                        cell_text = td.get_text().strip()
-                        # Process Unicode in cell content
-                        cell_text = normalize_text(cell_text)
-                        row.append(Paragraph(cell_text, normal_style))
-                    
-                    if row:
-                        rows.append(row)
-                
-                if rows:
-                    col_count = max([len(row) for row in rows])
-                    col_width = doc_width / col_count
-                    
-                    tbl = Table(rows, colWidths=[col_width] * col_count)
-                    tbl.setStyle(table_style)
-                    elements.append(tbl)
-                    elements.append(Spacer(1, 0.1*inch))
+                # Process table using our complex table processor
+                table_elements = process_complex_html_table(element, doc_width, normal_style)
+                elements.extend(table_elements)
+                elements.append(Spacer(1, 0.1*inch))
             elif element.name in ['ul', 'ol']:
                 # Process lists
                 list_items = []
@@ -782,6 +987,23 @@ def process_html_content(content, doc_width, normal_style):
                     # Process Unicode in paragraphs
                     text = normalize_text(text)
                     elements.append(Paragraph(text, normal_style))
+            elif element.name == 'div':
+                # Process div which may contain tables or other content
+                for child in element.children:
+                    if isinstance(child, str):
+                        text = child.strip()
+                        if text:
+                            text = normalize_text(text)
+                            elements.append(Paragraph(text, normal_style))
+                    elif child.name == 'table':
+                        table_elements = process_complex_html_table(child, doc_width, normal_style)
+                        elements.extend(table_elements)
+                        elements.append(Spacer(1, 0.1*inch))
+                    elif child.name == 'p':
+                        text = child.get_text().strip()
+                        if text:
+                            text = normalize_text(text)
+                            elements.append(Paragraph(text, normal_style))
             elif element.string and element.string.strip():
                 # Process any other elements with text content
                 text = element.string.strip()
@@ -916,6 +1138,15 @@ def generate_program_pdf(programa):
     )
 
     pdf_buffer = BytesIO()
+    
+    # Create document title for metadata
+    nombre_materia = programa.get('nombre_materia', 'Programa')
+    cod_carrera = programa.get('cod_carrera', '')
+    ano_academico = programa.get('ano_academico', '')
+    
+    # Build a descriptive document title
+    doc_title = f"CRUB UNCo - {nombre_materia} {cod_carrera} {ano_academico}"
+    
     doc = SimpleDocTemplate(
         pdf_buffer,
         pagesize=A4,
@@ -926,7 +1157,11 @@ def generate_program_pdf(programa):
         allowSplitting=1,    # Allow more aggressive content splitting
         displayDocTitle=True, # Better PDF metadata
         splitLongWords=1,    # Allow long words to split
-        pageCompression=1    # Compress the PDF
+        pageCompression=1,   # Compress the PDF
+        title=doc_title,     # Add document title
+        author="Centro Regional Universitario Bariloche - UNCo",  # Add author
+        subject=f"Programa de {nombre_materia} - {ano_academico}",  # Add subject
+        creator="Sistema de Programas - CRUB UNCo"  # Add creator
     )
 
     # Generate program elements using the helper function

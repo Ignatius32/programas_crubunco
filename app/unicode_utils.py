@@ -98,3 +98,19 @@ def normalize_text(text):
             text = text.replace(char, replacement)
     
     return text
+
+def decode_html_entities(text):
+    """
+    Decode HTML entities in text to proper Unicode characters.
+    
+    Args:
+        text (str): Text containing HTML entities
+        
+    Returns:
+        str: Text with HTML entities decoded to Unicode characters
+    """
+    from html import unescape
+    if not text:
+        return text
+    
+    return unescape(text)
