@@ -546,6 +546,10 @@ def process_html_table(table_element, doc_width, style):
             cols += colspan
         max_cols = max(max_cols, cols)
     
+    # Safety check - if no valid columns or rows found, return empty paragraph
+    if max_cols == 0 or not rows:
+        return [Paragraph("", style)]
+    
     # Initialize table grid with None (empty cells)
     grid = [[None for _ in range(max_cols)] for _ in range(len(rows))]
     
@@ -664,8 +668,14 @@ def process_html_table(table_element, doc_width, style):
                 table_row.append(cell['content'])
         table_data.append(table_row)
     
-    # Calculate column widths - equal distribution
-    col_widths = [doc_width / max_cols] * max_cols
+    # Calculate column widths with safety check and minimum width
+    min_col_width = 20  # minimum width in points
+    # Ensure we don't divide by zero and maintain minimum width
+    if max_cols > 0:
+        col_width = max(min_col_width, doc_width / max_cols)
+    else:
+        col_width = min_col_width
+    col_widths = [col_width] * max_cols
     
     # Create the table
     table = Table(table_data, colWidths=col_widths)
@@ -829,6 +839,10 @@ def process_complex_html_table(table_element, doc_width, style):
             cols += colspan
         max_cols = max(max_cols, cols)
     
+    # Safety check - if no valid columns found, return empty table with minimal formatting
+    if max_cols == 0:
+        return [Paragraph("", style)]
+    
     # Initialize the table data structure with empty cells
     table_data = []
     row_spans = {}  # Track cells with rowspan
@@ -911,9 +925,11 @@ def process_complex_html_table(table_element, doc_width, style):
         # Add the processed row to the table data
         table_data.append(row_data)
     
-    # Create ReportLab table
-    # Set column widths proportionally
-    col_width = doc_width / max_cols
+    # Create ReportLab table with safety check for max_cols
+    # Set column widths proportionally with minimum width
+    min_col_width = 20  # minimum width in points to prevent too narrow columns
+    # Ensure we don't divide by zero and maintain minimum width
+    col_width = max(min_col_width, doc_width / max_cols if max_cols > 0 else min_col_width)
     col_widths = [col_width] * max_cols
     
     # Create table with appropriate styling
