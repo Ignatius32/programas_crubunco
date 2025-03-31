@@ -508,7 +508,7 @@ def process_content(content, doc_width, style, is_html=False):
                 if list_items:
                     elementos.append(ListFlowable(
                         list_items,
-                        bulletType='decimal' if element.name == 'ol' else 'bullet',
+                        bulletType='1' if element.name == 'ol' else 'bullet',
                         leftIndent=20,
                         spaceBefore=6,
                         spaceAfter=6
@@ -990,7 +990,7 @@ def process_html_content(content, doc_width, normal_style):
                 
                 list_flowable = ListFlowable(
                     list_items,
-                    bulletType='decimal' if element.name == 'ol' else 'bullet',
+                    bulletType='1' if element.name == 'ol' else 'bullet',
                     leftIndent=20,
                     spaceBefore=6,
                     spaceAfter=6
