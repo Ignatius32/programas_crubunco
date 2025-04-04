@@ -87,15 +87,19 @@ def normalize_text(text):
         text (str): The text to normalize
         
     Returns:
-        str: The normalized text with problematic Unicode characters replaced
+        str: The normalized text with problematic characters replaced, or empty string if None
     """
-    if not text:
-        return text
-        
+    if text is None:
+        return ''
+    
     # Apply all replacements
     for char, replacement in UNICODE_REPLACEMENTS.items():
         if char in text:
             text = text.replace(char, replacement)
+    
+    # Normalize consecutive spaces
+    while '  ' in text:
+        text = text.replace('  ', ' ')
     
     return text
 
@@ -107,10 +111,10 @@ def decode_html_entities(text):
         text (str): Text containing HTML entities
         
     Returns:
-        str: Text with HTML entities decoded to Unicode characters
+        str: Text with HTML entities decoded to Unicode characters, or empty string if None
     """
     from html import unescape
-    if not text:
-        return text
+    if text is None:
+        return ''
     
     return unescape(text)
