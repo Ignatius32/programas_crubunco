@@ -70,12 +70,12 @@ gunicorn app.wsgi:application
 
 ```bash
 # Descargar y ejecutar la última versión de la imagen
-docker pull ghcr.io/USUARIO/programas_crubunco:latest
+docker pull ghcr.io/Ignatius32/programas_crubunco:latest
 docker run -d \
   -p 8000:8000 \
   -v /path/to/logs:/var/www/programas/logs \
   -e API_URL=your_api_url \
-  ghcr.io/USUARIO/programas_crubunco:latest
+  ghcr.io/Ignatius32/programas_crubunco:latest
 ```
 
 ### Construcción local
