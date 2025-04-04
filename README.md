@@ -64,6 +64,48 @@ Se recomienda usar un servidor WSGI como Gunicorn:
 gunicorn app.wsgi:application
 ```
 
+## Despliegue con Docker
+
+### Usando la imagen precompilada
+
+```bash
+# Descargar y ejecutar la última versión de la imagen
+docker pull ghcr.io/USUARIO/programas_crubunco:latest
+docker run -d \
+  -p 8000:8000 \
+  -v /path/to/logs:/var/www/programas/logs \
+  -e API_URL=your_api_url \
+  ghcr.io/USUARIO/programas_crubunco:latest
+```
+
+### Construcción local
+
+1. Construir la imagen:
+   ```bash
+   docker build -t programas_crubunco .
+   ```
+
+2. Ejecutar el contenedor:
+   ```bash
+   docker run -d \
+     -p 8000:8000 \
+     -v /path/to/logs:/var/www/programas/logs \
+     -e API_URL=your_api_url \
+     programas_crubunco
+   ```
+
+### Variables de entorno
+
+- `API_URL`: URL de la API externa (si es necesaria)
+- `FLASK_ENV`: Entorno de Flask (por defecto: production)
+
+### Volúmenes recomendados
+
+- `/var/www/programas/logs`: Logs de la aplicación
+- `/app/app/static`: Archivos estáticos (opcional)
+
+La aplicación estará disponible en http://localhost:8000
+
 ## Estructura del proyecto
 
 ```
