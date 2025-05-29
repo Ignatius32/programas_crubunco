@@ -19,6 +19,41 @@ from unicode_utils import normalize_text, UNICODE_REPLACEMENTS, decode_html_enti
 import re
 from html import unescape
 
+def sanitize_filename(filename):
+    """Sanitize filename for use in HTTP Content-Disposition header"""
+    if not filename:
+        return "programa"
+    
+    # Normalize Unicode characters
+    filename = normalize_text(filename)
+    
+    # Replace problematic characters
+    # Remove or replace characters that cause issues in filenames
+    filename = re.sub(r'[<>:"/\\|?*]', '', filename)  # Remove invalid filename chars
+    filename = re.sub(r'[,;]', '_', filename)  # Replace commas and semicolons with underscores
+    filename = re.sub(r'\s+', '_', filename)  # Replace spaces with underscores
+    filename = re.sub(r'[áàäâ]', 'a', filename, flags=re.IGNORECASE)
+    filename = re.sub(r'[éèëê]', 'e', filename, flags=re.IGNORECASE)
+    filename = re.sub(r'[íìïî]', 'i', filename, flags=re.IGNORECASE)
+    filename = re.sub(r'[óòöô]', 'o', filename, flags=re.IGNORECASE)
+    filename = re.sub(r'[úùüû]', 'u', filename, flags=re.IGNORECASE)
+    filename = re.sub(r'[ñ]', 'n', filename, flags=re.IGNORECASE)
+    filename = re.sub(r'[ç]', 'c', filename, flags=re.IGNORECASE)
+    
+    # Remove multiple consecutive underscores
+    filename = re.sub(r'_+', '_', filename)
+    
+    # Remove leading/trailing underscores
+    filename = filename.strip('_')
+    
+    # Ensure filename is not empty and not too long
+    if not filename:
+        filename = "programa"
+    elif len(filename) > 100:  # Limit filename length
+        filename = filename[:100]
+    
+    return filename
+
 load_dotenv()  # Load environment variables
 
 app = Flask(__name__)
@@ -358,13 +393,17 @@ def download_programa(program_id):
                 if url:
                     response = requests.get(url, stream=True)
                     if response.status_code == 200:
-                        buffer = BytesIO(response.content)
-                        # Add codigo carrera to the filename if it exists
+                        buffer = BytesIO(response.content)                        # Add codigo carrera to the filename if it exists
                         cod_carrera = program.get('cod_carrera', '')
                         codigo_str = f"_{cod_carrera}" if cod_carrera else ""
+                        
+                        # Sanitize filename to prevent HTTP header issues
+                        base_filename = f"{program.get('nombre_materia', 'programa')}{codigo_str}_{program.get('ano_academico', '')}"
+                        safe_filename = sanitize_filename(base_filename) + ".pdf"
+                        
                         return send_file(
                             buffer,
-                            download_name=f"{program.get('nombre_materia', 'programa')}{codigo_str}_{program.get('ano_academico', '')}.pdf",
+                            download_name=safe_filename,
                             as_attachment=True,
                             mimetype='application/pdf'
                         )
@@ -399,14 +438,17 @@ def download_programa(program_id):
         
         # Generate PDF using existing function
         pdf_buffer = generate_program_pdf(program)
-        
-        # Add codigo carrera to the filename if it exists
+          # Add codigo carrera to the filename if it exists
         cod_carrera = program.get('cod_carrera', '')
         codigo_str = f"_{cod_carrera}" if cod_carrera else ""
         
+        # Sanitize filename to prevent HTTP header issues
+        base_filename = f"{program.get('nombre_materia', 'programa')}{codigo_str}_{program.get('ano_academico', '')}"
+        safe_filename = sanitize_filename(base_filename) + ".pdf"
+        
         return send_file(
             pdf_buffer,
-            download_name=f"{program.get('nombre_materia', 'programa')}{codigo_str}_{program.get('ano_academico', '')}.pdf",
+            download_name=safe_filename,
             as_attachment=True,
             mimetype='application/pdf'
         )
