@@ -14,8 +14,13 @@ from reportlab.lib import colors
 from reportlab.lib.units import inch, mm
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
-# Import the Unicode utils module
-from unicode_utils import normalize_text, UNICODE_REPLACEMENTS, decode_html_entities
+# Import the Unicode utils module - updated for better Docker compatibility
+try:
+    # Relative import (for Docker environment)
+    from app.unicode_utils import normalize_text, UNICODE_REPLACEMENTS, decode_html_entities
+except ImportError:
+    # Direct import (for local development)
+    from unicode_utils import normalize_text, UNICODE_REPLACEMENTS, decode_html_entities
 import re
 from html import unescape
 
