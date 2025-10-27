@@ -16,12 +16,56 @@ document.addEventListener('DOMContentLoaded', function() {
 
     let chart;
 
-    function ensureChart(ctx, labels, totalData, histData, apiData) {
+    function ensureChart(ctx, labels, totalData, histData, apiData, mediaData) {
         if (chart) {
+            // Preserve current hidden state by label if the chart already exists
+            const prevHidden = {};
+            (chart.data.datasets || []).forEach(ds => { prevHidden[ds.label] = ds.hidden; });
+
             chart.data.labels = labels;
-            chart.data.datasets[0].data = totalData;
-            chart.data.datasets[1].data = histData;
-            chart.data.datasets[2].data = apiData;
+            chart.data.datasets = [
+                {
+                    label: 'Total',
+                    data: totalData,
+                    borderColor: '#0d6efd',
+                    backgroundColor: 'rgba(13,110,253,0.1)',
+                    tension: 0.2,
+                    borderWidth: 2,
+                    pointRadius: 3,
+                    hidden: prevHidden['Total'] ?? false
+                },
+                {
+                    label: 'Histórico',
+                    data: histData,
+                    borderColor: '#6c757d',
+                    backgroundColor: 'rgba(108,117,125,0.1)',
+                    tension: 0.2,
+                    borderWidth: 2,
+                    pointRadius: 3,
+                    hidden: prevHidden['Histórico'] ?? true
+                },
+                {
+                    label: 'API',
+                    data: apiData,
+                    borderColor: '#20c997',
+                    backgroundColor: 'rgba(32,201,151,0.1)',
+                    tension: 0.2,
+                    borderWidth: 2,
+                    pointRadius: 3,
+                    hidden: prevHidden['API'] ?? true
+                },
+                {
+                    label: 'Media',
+                    data: mediaData,
+                    borderColor: '#fd7e14', // Bootstrap orange
+                    backgroundColor: 'transparent',
+                    borderDash: [6, 4],
+                    tension: 0,
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    hidden: prevHidden['Media'] ?? false
+                }
+            ];
             chart.update();
             return chart;
         }
@@ -59,6 +103,16 @@ document.addEventListener('DOMContentLoaded', function() {
                         tension: 0.2,
                         borderWidth: 2,
                         pointRadius: 3
+                    },
+                    {
+                        label: 'Media',
+                        data: mediaData,
+                        borderColor: '#fd7e14',
+                        backgroundColor: 'transparent',
+                        borderDash: [6, 4],
+                        tension: 0,
+                        borderWidth: 2,
+                        pointRadius: 0
                     }
                 ]
             },
@@ -120,8 +174,12 @@ document.addEventListener('DOMContentLoaded', function() {
         const histData = ascending.map(i => i.hist);
         const apiData = ascending.map(i => i.api);
 
+        // Calculate average of total series and build a flat line
+        const avg = totalData.length ? (totalData.reduce((a, b) => a + b, 0) / totalData.length) : 0;
+        const mediaData = totalData.map(() => avg);
+
         const ctx = document.getElementById('stats-chart').getContext('2d');
-        ensureChart(ctx, labels, totalData, histData, apiData);
+        ensureChart(ctx, labels, totalData, histData, apiData, mediaData);
     }
 
     function fetchStats() {
