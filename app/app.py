@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 from unicode_utils import normalize_text, UNICODE_REPLACEMENTS, decode_html_entities
 import re
 from html import unescape
+from collections import defaultdict
 
 def sanitize_filename(filename):
     """Sanitize filename for use in HTTP Content-Disposition header"""
@@ -378,6 +379,74 @@ def available_years(year_type):
             print(f"API search error: {str(e)}")
     
     return jsonify(sorted(list(years), reverse=True))
+
+# Stats Page Route
+@app.route('/stats')
+def stats():
+    """Statistics page to view program counts per year with optional career filter"""
+    return render_template('stats.html', careers=CARRERAS, now=datetime.now())
+
+# Stats API: Programs per academic year
+@app.route('/api/stats/programs_per_year')
+def stats_programs_per_year():
+    """Aggregate program counts per academic year, optionally filtered by career code"""
+    carrera = request.args.get('carrera', '').strip()
+
+    # Counters per source
+    counts_hist = defaultdict(int)
+    counts_api = defaultdict(int)
+
+    # Local (historical) programs
+    for program in OLD_PROGRAMS:
+        # Filter by career if provided; accept either code or exact name
+        if carrera:
+            if not (
+                program.get('cod_carrera', '') == carrera or
+                program.get('nombre_carrera', '') == carrera
+            ):
+                continue
+        year = str(program.get('ano_academico', '')).strip()
+        if year:
+            counts_hist[year] += 1
+
+    # External API (if configured)
+    api_url = app.config.get('API_URL')
+    if api_url:
+        try:
+            params = {}
+            if carrera:
+                params['cod_carrera'] = carrera
+            auth = requests.auth.HTTPDigestAuth('usuario1', 'pdf')
+            response = requests.get(f"{api_url}/rest/programas", params=params, auth=auth, timeout=5)
+            if response.status_code == 200:
+                api_programs = response.json()
+                for program in api_programs:
+                    year = str(program.get('ano_academico', '')).strip()
+                    if year:
+                        counts_api[year] += 1
+        except Exception as e:
+            print(f"API stats error: {str(e)}")
+
+    # Merge counts and build response list sorted by year desc
+    all_years = set(counts_hist.keys()) | set(counts_api.keys())
+    items = []
+    for year in sorted(all_years, key=lambda y: y, reverse=True):
+        h = counts_hist.get(year, 0)
+        a = counts_api.get(year, 0)
+        items.append({
+            'year': year,
+            'total': h + a,
+            'hist': h,
+            'api': a
+        })
+
+    total_programs = sum(i['total'] for i in items)
+
+    return jsonify({
+        'carrera': carrera or None,
+        'total_programs': total_programs,
+        'counts': items
+    })
 
 # Download Program PDF Route
 @app.route('/download/programa/<program_id>')
